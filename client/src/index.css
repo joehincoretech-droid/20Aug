@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+input:focus,
+button:focus,
+select:focus {
+  outline: none;
+}
+
+.scan-pulse {
+  animation: scanPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes scanPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(245 158 11 / 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgb(245 158 11 / 0);
+  }
+}
