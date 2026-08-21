@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   type FormEvent,
-  type ReactNode,
   type RefObject,
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -51,6 +50,23 @@ export function Packing() {
 
   function focusProductInput() {
     requestAnimationFrame(() => productInput.current?.focus());
+  }
+
+  function selectExistingBox(id: string) {
+    if (!id) return;
+    setBoxId(id);
+    const box = boxes.find((b) => b.boxId === id);
+    if (box?.palletId) {
+      setPalletId(box.palletId);
+    }
+    if (box && !box.completed) {
+      focusProductInput();
+    }
+  }
+
+  function selectExistingPallet(id: string) {
+    if (!id) return;
+    setPalletId(id);
   }
 
   const rows = useMemo(
@@ -222,6 +238,47 @@ export function Packing() {
   const palletFill = currentPallet?.boxes.length || 0;
   const totalPacked = rows.length;
 
+  const hasBox = Boolean(currentBox);
+  const hasPallet = Boolean(currentPallet);
+  const boxLinked = Boolean(currentBox?.palletId);
+
+  type NextStep = 'box' | 'pallet' | 'link' | 'scan';
+  let nextStep: NextStep = 'scan';
+  if (!hasBox) nextStep = 'box';
+  else if (needsPallet && !hasPallet) nextStep = 'pallet';
+  else if (needsPallet && hasPallet && !boxLinked) nextStep = 'link';
+  else nextStep = 'scan';
+
+  const nextStepBanner = (() => {
+    if (readOnly) {
+      return { tone: 'ready' as const, text: 'This SOW is completed — scanning is read-only.' };
+    }
+    if (currentBox?.completed) {
+      return {
+        tone: 'blocked' as const,
+        text: `Box ${currentBox.boxId} is completed — select or create another box to continue`,
+      };
+    }
+    if (nextStep === 'box') {
+      return { tone: 'blocked' as const, text: 'Step 1 — Scan or enter a Box ID to start' };
+    }
+    if (nextStep === 'pallet') {
+      return { tone: 'blocked' as const, text: 'Step 2 — Scan or enter a Pallet ID' };
+    }
+    if (nextStep === 'link') {
+      return { tone: 'blocked' as const, text: 'Step 3 — Link this box to the pallet' };
+    }
+    const palletPart = currentBox?.palletId
+      ? ` · Pallet ${currentBox.palletId}`
+      : needsPallet
+        ? ' · unlinked'
+        : '';
+    return {
+      tone: 'ready' as const,
+      text: `Scanning into ${currentBox!.boxId}${palletPart} · capacity ${boxFill}/30`,
+    };
+  })();
+
   return (
     <div className="p-8 space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -268,8 +325,44 @@ export function Packing() {
           <InfoItem label="Client ID" value={sow.clientCode} />
           <InfoItem label="Batch NO" value={sow.batchNo} />
           <InfoItem label="Packing Type" value={sow.packingTypeLabel} />
-          <InfoItem label="Packed Amount" value={`${totalPacked} product(s)`} />
+          <InfoItem
+            label="Scanned / Ordered"
+            value={
+              sow.orderedQty != null
+                ? `${totalPacked} / ${sow.orderedQty}`
+                : `${totalPacked} product(s)`
+            }
+          />
         </div>
+        {sow.progressItems && sow.progressItems.length > 0 && (
+          <div className="mt-4 pt-4 border-t">
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-400 mb-2">
+              PO product progress (this SOW)
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {sow.progressItems.map((item) => (
+                <div
+                  key={item.sku}
+                  className="rounded-lg border bg-slate-50 px-3 py-2 text-sm flex items-center justify-between gap-2"
+                >
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{item.productName}</div>
+                    <div className="font-mono text-[11px] text-slate-400">{item.sku}</div>
+                  </div>
+                  <div
+                    className={`font-mono text-sm font-semibold shrink-0 ${
+                      item.scannedQty >= item.orderedQty && item.orderedQty > 0
+                        ? 'text-emerald-700'
+                        : 'text-amber-700'
+                    }`}
+                  >
+                    {item.scannedQty}/{item.orderedQty}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="mt-4 pt-4 border-t">
           <div className="text-xs font-medium uppercase tracking-wide text-slate-400 mb-2">
             Selected SKU / Product Name
@@ -294,79 +387,157 @@ export function Packing() {
         </div>
       </div>
 
-      <div className={`grid gap-4 ${needsPallet ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
-        <ScanCard
-          title="Box ID"
-          hint="QR scan or manual input. Boxes start unlinked."
-          value={boxId}
-          onChange={setBoxId}
-          onCommit={() => ensureBox().catch((e: Error) => toast.error(e.message))}
-          onScan={() => setScanner('box')}
-          meter={`${boxFill}/30`}
-          fill={boxFill / 30}
-          disabled={readOnly}
-          extra={
-            <button
-              disabled={readOnly || !currentBox}
-              onClick={completeBox}
-              className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
-            >
-              Complete Box
-            </button>
-          }
-        />
-        {needsPallet && (
-          <ScanCard
-            title="Pallet ID"
-            hint="Required for pallet packing types."
-            value={palletId}
-            onChange={setPalletId}
-            onCommit={() => ensurePallet().catch((e: Error) => toast.error(e.message))}
-            onScan={() => setScanner('pallet')}
-            meter={`${palletFill}/50`}
-            fill={palletFill / 50}
+      <div
+        className={`rounded-xl border px-4 py-3 text-sm font-medium ${
+          nextStepBanner.tone === 'ready'
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+            : 'bg-amber-50 border-amber-200 text-amber-900'
+        }`}
+      >
+        {nextStepBanner.text}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <section className="lg:col-span-1 bg-slate-50 rounded-2xl border border-slate-200 p-4 space-y-4">
+          <div>
+            <h3 className="font-semibold text-slate-800">Container setup</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Box first{needsPallet ? ', then pallet & link' : ''}.</p>
+          </div>
+
+          <ContainerField
+            step={1}
+            active={nextStep === 'box'}
+            title="Box ID"
+            value={boxId}
+            onChange={setBoxId}
+            onCommit={() => ensureBox().catch((e: Error) => toast.error(e.message))}
+            onScan={() => setScanner('box')}
+            meter={`${boxFill}/30`}
+            fill={boxFill / 30}
             disabled={readOnly}
-            extra={
+          />
+
+          {boxes.length > 0 && (
+            <label className="block text-xs text-slate-500">
+              Select existing box
+              <select
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 font-mono text-sm text-slate-900"
+                value={boxes.some((b) => b.boxId === boxId) ? boxId : ''}
+                disabled={readOnly}
+                onChange={(e) => selectExistingBox(e.target.value)}
+              >
+                <option value="">Choose a previous box…</option>
+                {boxes.map((b) => (
+                  <option key={b.boxId} value={b.boxId}>
+                    {b.boxId} ({b.products.length}/30)
+                    {b.completed ? ' · done' : ''}
+                    {b.palletId ? ` · → ${b.palletId}` : ' · unlinked'}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <button
+            disabled={readOnly || !currentBox}
+            onClick={completeBox}
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-100 disabled:opacity-50"
+          >
+            Complete Box
+          </button>
+
+          {needsPallet && (
+            <>
+              <ContainerField
+                step={2}
+                active={nextStep === 'pallet'}
+                title="Pallet ID"
+                value={palletId}
+                onChange={setPalletId}
+                onCommit={() => ensurePallet().catch((e: Error) => toast.error(e.message))}
+                onScan={() => setScanner('pallet')}
+                meter={`${palletFill}/50`}
+                fill={palletFill / 50}
+                disabled={readOnly}
+              />
+
+              {pallets.length > 0 && (
+                <label className="block text-xs text-slate-500">
+                  Select existing pallet
+                  <select
+                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 font-mono text-sm text-slate-900"
+                    value={pallets.some((p) => p.palletId === palletId) ? palletId : ''}
+                    disabled={readOnly}
+                    onChange={(e) => selectExistingPallet(e.target.value)}
+                  >
+                    <option value="">Choose a previous pallet…</option>
+                    {pallets.map((p) => (
+                      <option key={p.palletId} value={p.palletId}>
+                        {p.palletId} ({p.boxes.length}/50 boxes)
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              <div className="flex flex-wrap items-center gap-2">
+                {currentBox?.palletId ? (
+                  <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-1 text-xs font-medium font-mono">
+                    Linked → {currentBox.palletId}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-900 px-2.5 py-1 text-xs font-medium">
+                    Unlinked
+                  </span>
+                )}
+              </div>
+
               <div className="flex gap-2">
                 <button
-                  disabled={readOnly}
+                  disabled={readOnly || nextStep === 'box'}
                   onClick={linkBox}
-                  className="inline-flex items-center gap-1 rounded-lg bg-slate-950 text-white px-3 py-2 text-sm"
+                  className={`inline-flex flex-1 items-center justify-center gap-1 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${
+                    nextStep === 'link'
+                      ? 'bg-amber-500 text-slate-950 ring-2 ring-amber-200'
+                      : 'bg-slate-950 text-white'
+                  }`}
                 >
                   <Link2 size={14} /> Link Box
                 </button>
                 {currentBox?.palletId && (
                   <button
-                    className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-sm"
+                    disabled={readOnly}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                     onClick={() => unlinkBox(currentBox.boxId)}
                   >
                     <Unlink size={14} /> Unlink
                   </button>
                 )}
               </div>
-            }
-          />
-        )}
-        <ScanCard
-          title="Product ID"
-          hint="Continuous barcode scan or type, then Enter."
+            </>
+          )}
+        </section>
+
+        <ProductScanPanel
+          step={needsPallet ? 3 : 2}
+          active={nextStep === 'scan' && !currentBox?.completed}
           value={productId}
           onChange={setProductId}
           onCommit={() => scanProduct()}
           onScan={() => setScanner('product')}
           inputRef={productInput}
-          disabled={readOnly}
-          pulse
-          extra={
-            currentBox ? (
-              <div className="text-xs text-slate-500">
-                Packing into <span className="font-mono font-medium text-slate-800">{currentBox.boxId}</span>
-                {currentBox.palletId ? ` · pallet ${currentBox.palletId}` : ' · unlinked'}
-              </div>
-            ) : (
-              <div className="text-xs text-amber-700">Set a Box ID before scanning products.</div>
-            )
+          disabled={readOnly || !hasBox || Boolean(currentBox?.completed)}
+          destination={
+            currentBox
+              ? {
+                  boxId: currentBox.boxId,
+                  palletId: currentBox.palletId,
+                  capacity: `${boxFill}/30`,
+                }
+              : null
           }
+          needsBox={!hasBox}
+          boxCompleted={Boolean(currentBox?.completed)}
         />
       </div>
 
@@ -462,50 +633,61 @@ function InfoItem({
   );
 }
 
-function ScanCard({
+function StepBadge({ step, active }: { step: number; active: boolean }) {
+  return (
+    <span
+      className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
+        active ? 'bg-amber-500 text-slate-950' : 'bg-slate-200 text-slate-600'
+      }`}
+    >
+      {step}
+    </span>
+  );
+}
+
+function ContainerField({
+  step,
+  active,
   title,
-  hint,
   value,
   onChange,
   onCommit,
   onScan,
   meter,
   fill,
-  extra,
-  inputRef,
   disabled,
-  pulse,
 }: {
+  step: number;
+  active: boolean;
   title: string;
-  hint: string;
   value: string;
   onChange: (value: string) => void;
   onCommit: () => void;
   onScan: () => void;
-  meter?: string;
-  fill?: number;
-  extra?: ReactNode;
-  inputRef?: RefObject<HTMLInputElement>;
+  meter: string;
+  fill: number;
   disabled?: boolean;
-  pulse?: boolean;
 }) {
   return (
-    <div className="bg-white rounded-2xl border shadow-sm p-4">
-      <div className="flex items-center justify-between">
-        <div className="font-semibold">{title}</div>
-        {meter && <div className="text-xs font-mono text-slate-500">({meter})</div>}
-      </div>
-      <p className="text-xs text-slate-500 mt-1">{hint}</p>
-      {typeof fill === 'number' && (
-        <div className="mt-3 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-          <div className="h-full bg-amber-500" style={{ width: `${Math.min(100, fill * 100)}%` }} />
+    <div
+      className={`rounded-xl border bg-white p-3 ${
+        active ? 'border-amber-400 ring-2 ring-amber-100' : 'border-slate-200'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <StepBadge step={step} active={active} />
+          <div className="font-semibold text-sm text-slate-800">{title}</div>
         </div>
-      )}
-      <div className="mt-3 flex gap-2">
+        <div className="text-xs font-mono text-slate-500">({meter})</div>
+      </div>
+      <div className="mt-2 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+        <div className="h-full bg-amber-500 transition-all" style={{ width: `${Math.min(100, fill * 100)}%` }} />
+      </div>
+      <div className="mt-2 flex gap-1.5">
         <input
-          ref={inputRef}
           disabled={disabled}
-          className={`flex-1 rounded-lg border px-3 py-2 font-mono ${pulse ? 'scan-pulse' : ''}`}
+          className="flex-1 min-w-0 rounded-lg border px-2.5 py-1.5 font-mono text-sm"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
@@ -514,27 +696,143 @@ function ScanCard({
               onCommit();
             }
           }}
+          placeholder={title}
         />
         <button
           type="button"
           disabled={disabled}
           onClick={onScan}
-          className="rounded-lg border px-3 hover:bg-slate-50"
+          className="rounded-lg border px-2.5 hover:bg-slate-50 disabled:opacity-50"
           title="Open camera"
         >
-          <Camera size={18} />
+          <Camera size={16} />
         </button>
         <button
           type="button"
           disabled={disabled}
           onClick={onCommit}
-          className="rounded-lg bg-amber-500 px-3 text-slate-950"
+          className="rounded-lg bg-slate-800 px-2.5 text-white disabled:opacity-50"
         >
-          <ScanLine size={18} />
+          <ScanLine size={16} />
         </button>
       </div>
-      {extra && <div className="mt-3">{extra}</div>}
     </div>
+  );
+}
+
+function ProductScanPanel({
+  step,
+  active,
+  value,
+  onChange,
+  onCommit,
+  onScan,
+  inputRef,
+  disabled,
+  destination,
+  needsBox,
+  boxCompleted,
+}: {
+  step: number;
+  active: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  onCommit: () => void;
+  onScan: () => void;
+  inputRef: RefObject<HTMLInputElement>;
+  disabled?: boolean;
+  destination: { boxId: string; palletId?: string | null; capacity: string } | null;
+  needsBox: boolean;
+  boxCompleted?: boolean;
+}) {
+  return (
+    <section
+      className={`lg:col-span-2 rounded-2xl border bg-white p-5 shadow-sm ${
+        active ? 'border-amber-400 ring-2 ring-amber-100' : 'border-slate-200'
+      }`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <StepBadge step={step} active={active} />
+          <div>
+            <h3 className="font-semibold text-lg text-slate-900">Product scanning</h3>
+            <p className="text-xs text-slate-500">Continuous barcode scan or type, then Enter</p>
+          </div>
+        </div>
+        {destination && (
+          <div className="text-xs font-mono text-slate-500">({destination.capacity})</div>
+        )}
+      </div>
+
+      <div className="mt-4 flex gap-2">
+        <input
+          ref={inputRef}
+          disabled={disabled}
+          className={`flex-1 rounded-xl border-2 px-4 py-3.5 font-mono text-lg ${
+            active && !disabled
+              ? 'border-amber-400 scan-pulse focus:ring-2 focus:ring-amber-200'
+              : 'border-slate-200'
+          } disabled:bg-slate-50 disabled:text-slate-400`}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              onCommit();
+            }
+          }}
+          placeholder={
+            needsBox
+              ? 'Set a Box ID first…'
+              : boxCompleted
+                ? 'This box is completed'
+                : 'Scan or type Product ID'
+          }
+          autoComplete="off"
+        />
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onScan}
+          className="rounded-xl border px-4 hover:bg-slate-50 disabled:opacity-50"
+          title="Open camera"
+        >
+          <Camera size={22} />
+        </button>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onCommit}
+          className="rounded-xl bg-amber-500 px-4 text-slate-950 font-semibold disabled:opacity-50"
+        >
+          <ScanLine size={22} />
+        </button>
+      </div>
+
+      <div className="mt-3">
+        {needsBox ? (
+          <p className="text-sm text-amber-700">Set a Box ID in Container setup before scanning products.</p>
+        ) : boxCompleted ? (
+          <p className="text-sm text-amber-700">
+            Box <span className="font-mono font-semibold">{destination?.boxId}</span> is completed.
+            Select or create another box to continue scanning.
+          </p>
+        ) : destination ? (
+          <p className="text-sm text-slate-600">
+            Packing into{' '}
+            <span className="font-mono font-semibold text-slate-900">{destination.boxId}</span>
+            {destination.palletId ? (
+              <>
+                {' '}
+                · pallet <span className="font-mono font-semibold">{destination.palletId}</span>
+              </>
+            ) : (
+              <span className="text-amber-700"> · unlinked</span>
+            )}
+          </p>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

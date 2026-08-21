@@ -4,6 +4,7 @@ import { PoClient } from '../models/PoClient.js';
 import { ProductNameOption } from '../models/ProductNameOption.js';
 import { writeAudit } from '../utils/audit.js';
 import { authRequired, requireRole } from '../middleware/auth.js';
+import { buildPoProgress } from '../utils/poProgress.js';
 
 export const purchaseOrdersRouter = Router();
 
@@ -26,12 +27,22 @@ purchaseOrdersRouter.get('/', requireRole('admin', 'po'), async (_req: Request, 
   const orders = await PurchaseOrder.find()
     .sort({ createdAt: -1 })
     .populate('createdBy', 'username role');
-  res.json({
-    orders: orders.map((o) => ({
-      ...o.toObject(),
-      productOrder: orderLabel(o.items),
-    })),
-  });
+
+  const withProgress = await Promise.all(
+    orders.map(async (o) => {
+      const progress = await buildPoProgress(o.poNumber, o.items || []);
+      return {
+        ...o.toObject(),
+        productOrder: orderLabel(o.items),
+        orderedQty: progress.orderedQty,
+        scannedQty: progress.scannedQty,
+        sowCount: progress.sowCount,
+        progressItems: progress.items,
+      };
+    })
+  );
+
+  res.json({ orders: withProgress });
 });
 
 purchaseOrdersRouter.get('/next-number', requireRole('admin', 'po'), async (_req: Request, res: Response) => {
@@ -41,7 +52,18 @@ purchaseOrdersRouter.get('/next-number', requireRole('admin', 'po'), async (_req
 purchaseOrdersRouter.get('/:poNumber', async (req: Request, res: Response) => {
   const po = await PurchaseOrder.findOne({ poNumber: req.params.poNumber });
   if (!po) return res.status(404).json({ message: 'PO not found' });
-  res.json({ order: { ...po.toObject(), productOrder: orderLabel(po.items) } });
+  const progress = await buildPoProgress(po.poNumber, po.items || []);
+  res.json({
+    order: {
+      ...po.toObject(),
+      productOrder: orderLabel(po.items),
+      orderedQty: progress.orderedQty,
+      scannedQty: progress.scannedQty,
+      sowCount: progress.sowCount,
+      sowNumbers: progress.sowNumbers,
+      progressItems: progress.items,
+    },
+  });
 });
 
 purchaseOrdersRouter.post('/', requireRole('admin', 'po'), async (req: Request, res: Response) => {

@@ -220,7 +220,7 @@ export function Dashboard() {
               <th className="px-4 py-3 font-medium">PO</th>
               <th className="px-4 py-3 font-medium">Client Code</th>
               <th className="px-4 py-3 font-medium">SKU / Product Name</th>
-              <th className="px-4 py-3 font-medium">Total Amount</th>
+              <th className="px-4 py-3 font-medium">Progress</th>
               <th className="px-4 py-3 font-medium">Status</th>
             </tr>
           </thead>
@@ -254,7 +254,27 @@ export function Dashboard() {
                     </div>
                   ))}
                 </td>
-                <td className="px-4 py-3">{sow.totalAmount}</td>
+                <td className="px-4 py-3">
+                  <div className="font-medium">
+                    {sow.scannedQty ?? sow.totalAmount ?? 0}
+                    {sow.orderedQty != null ? ` / ${sow.orderedQty}` : ''}
+                  </div>
+                  {sow.orderedQty != null && sow.orderedQty > 0 && (
+                    <div className="mt-1 h-1.5 w-24 rounded-full bg-slate-100 overflow-hidden">
+                      <div
+                        className={`h-full ${
+                          (sow.scannedQty ?? 0) >= sow.orderedQty ? 'bg-emerald-500' : 'bg-amber-500'
+                        }`}
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            Math.round(((sow.scannedQty ?? 0) / sow.orderedQty) * 100)
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-medium ${

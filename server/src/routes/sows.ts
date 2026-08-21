@@ -5,6 +5,7 @@ import { Box } from '../models/Box.js';
 import { Pallet } from '../models/Pallet.js';
 import { PoClient } from '../models/PoClient.js';
 import { ProductNameOption } from '../models/ProductNameOption.js';
+import { PurchaseOrder } from '../models/PurchaseOrder.js';
 import { writeAudit } from '../utils/audit.js';
 import { authRequired, requireRole } from '../middleware/auth.js';
 
@@ -55,26 +56,50 @@ async function withTotals(sows: SowDocument[]) {
   const ids = sows.map((s) => s._id);
   const boxes = await Box.find({ sowId: { $in: ids } });
   const namesBySku = await skuNameMap();
-  const bySow = new Map<string, { totalAmount: number; boxCount: number }>();
+  const bySow = new Map<string, { totalAmount: number; boxCount: number; bySku: Map<string, number> }>();
   for (const box of boxes) {
     const key = String(box.sowId);
-    const prev = bySow.get(key) || { totalAmount: 0, boxCount: 0 };
+    const prev = bySow.get(key) || { totalAmount: 0, boxCount: 0, bySku: new Map() };
     prev.totalAmount += box.products.length;
     prev.boxCount += 1;
+    for (const p of box.products) {
+      prev.bySku.set(p.sku, (prev.bySku.get(p.sku) || 0) + 1);
+    }
     bySow.set(key, prev);
   }
+
+  const poNumbers = [...new Set(sows.map((s) => s.poNumber).filter(Boolean))];
+  const pos = await PurchaseOrder.find({ poNumber: { $in: poNumbers } });
+  const poByNumber = new Map(pos.map((p) => [p.poNumber, p]));
+
   return sows.map((sow) => {
-    const stats = bySow.get(String(sow._id)) || { totalAmount: 0, boxCount: 0 };
+    const stats = bySow.get(String(sow._id)) || {
+      totalAmount: 0,
+      boxCount: 0,
+      bySku: new Map<string, number>(),
+    };
     const selectedSKULabels = (sow.selectedSKUs || []).map((sku) => ({
       sku,
       productName: namesBySku.get(sku) || sku,
+    }));
+    const po = poByNumber.get(sow.poNumber);
+    const orderedQty = po?.items?.reduce((n, i) => n + (i.qty || 0), 0) ?? null;
+    const progressItems = (po?.items || []).map((i) => ({
+      sku: i.sku,
+      productName: i.productName,
+      orderedQty: i.qty,
+      scannedQty: stats.bySku.get(i.sku) || 0,
     }));
     return {
       ...sow.toObject(),
       packingTypeLabel: packingTypeLabel(sow.packingType),
       totalAmount: stats.totalAmount,
+      scannedQty: stats.totalAmount,
+      orderedQty,
       boxCount: stats.boxCount,
       selectedSKULabels,
+      progressItems,
+      productOrder: po?.items?.map((i) => `${i.productName}*${i.qty}`).join('，') || '',
     };
   });
 }
@@ -98,7 +123,7 @@ sowsRouter.get('/history', authRequired, requireRole('admin'), async (_req: Requ
   res.json({ sows: withStats, boxes, pallets });
 });
 
-sowsRouter.get('/next-number', requireRole('admin', 'worker'), async (req: Request, res: Response) => {
+sowsRouter.get('/next-number', requireRole('admin', 'worker', 'po'), async (req: Request, res: Response) => {
   const poNumber = String(req.query.poNumber || '').trim();
   if (!poNumber) {
     return res.status(400).json({ message: 'poNumber is required' });
@@ -121,7 +146,7 @@ sowsRouter.get('/:id', requireRole('admin', 'worker'), async (req: Request, res:
   res.json({ sow: withStats, boxes, pallets });
 });
 
-sowsRouter.post('/', requireRole('admin', 'worker'), async (req: Request, res: Response) => {
+sowsRouter.post('/', requireRole('admin', 'worker', 'po'), async (req: Request, res: Response) => {
   const { poNumber, batchNo, clientCode, packingType, selectedSKUs } = req.body || {};
   if (!poNumber || !batchNo || !clientCode || !packingType) {
     return res.status(400).json({ message: 'PO, Batch, Client, and packing type are required' });

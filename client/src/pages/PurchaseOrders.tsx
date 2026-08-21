@@ -1,11 +1,23 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Plus } from 'lucide-react';
+import { Boxes, Layers, Package, Plus, type LucideIcon } from 'lucide-react';
 import { api } from '../api';
 import { Modal } from '../components/Modal';
-import type { ProductName, PurchaseOrder } from '../types';
+import { useAuth } from '../context/AuthContext';
+import type { ProductName, PurchaseOrder, Sow } from '../types';
+
+const TYPES: Array<{ id: 1 | 2 | 3; title: string; icon: LucideIcon }> = [
+  { id: 1, title: 'Box only', icon: Package },
+  { id: 2, title: '1 SKU / Pallet', icon: Layers },
+  { id: 3, title: 'Multi-SKU / Pallet', icon: Boxes },
+];
 
 export function PurchaseOrders() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const canPack = user?.role === 'admin' || user?.role === 'worker';
+
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [skuOptions, setSkuOptions] = useState<ProductName[]>([]);
   const [open, setOpen] = useState(false);
@@ -13,6 +25,14 @@ export function PurchaseOrders() {
   const [clientCode, setClientCode] = useState('');
   const [previewPo, setPreviewPo] = useState('');
   const [qtys, setQtys] = useState<Record<string, string>>({});
+
+  const [detail, setDetail] = useState<PurchaseOrder | null>(null);
+  const [createSowOpen, setCreateSowOpen] = useState(false);
+  const [sowBusy, setSowBusy] = useState(false);
+  const [batchNo, setBatchNo] = useState('');
+  const [packingType, setPackingType] = useState<1 | 2 | 3 | null>(null);
+  const [selectedSKUs, setSelectedSKUs] = useState<string[]>([]);
+  const [previewSow, setPreviewSow] = useState('');
 
   async function load() {
     const [poData, skuData] = await Promise.all([
@@ -37,6 +57,88 @@ export function PurchaseOrders() {
       setPreviewPo('');
     }
     setOpen(true);
+  }
+
+  async function openOrder(order: PurchaseOrder) {
+    try {
+      const data = await api<{ order: PurchaseOrder }>(
+        `/api/purchase-orders/${encodeURIComponent(order.poNumber)}`
+      );
+      setDetail(data.order);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to load PO');
+    }
+  }
+
+  async function startCreateSow() {
+    if (!detail) return;
+    setBatchNo('');
+    setPackingType(null);
+    const skus = [...new Set((detail.items || []).map((i) => i.sku))];
+    setSelectedSKUs(skus);
+    try {
+      const data = await api<{ sowNumber: string }>(
+        `/api/sows/next-number?poNumber=${encodeURIComponent(detail.poNumber)}`
+      );
+      setPreviewSow(data.sowNumber);
+    } catch {
+      setPreviewSow('');
+    }
+    setCreateSowOpen(true);
+  }
+
+  function toggleSku(sku: string) {
+    setSelectedSKUs((prev) => {
+      if (packingType === 1 || packingType === 2) {
+        return prev.includes(sku) && prev.length === 1 ? [] : [sku];
+      }
+      return prev.includes(sku) ? prev.filter((s) => s !== sku) : [...prev, sku];
+    });
+  }
+
+  async function submitSow(e: FormEvent) {
+    e.preventDefault();
+    if (!detail) return;
+    if (!batchNo.trim()) {
+      toast.error('Enter Batch NO');
+      return;
+    }
+    if (!packingType) {
+      toast.error('Select a packing type');
+      return;
+    }
+    if ((packingType === 1 || packingType === 2) && selectedSKUs.length !== 1) {
+      toast.error('Select exactly 1 SKU');
+      return;
+    }
+    if (packingType === 3 && selectedSKUs.length < 2) {
+      toast.error('Select multiple SKUs');
+      return;
+    }
+    setSowBusy(true);
+    try {
+      const data = await api<{ sow: Sow }>('/api/sows', {
+        method: 'POST',
+        body: {
+          poNumber: detail.poNumber,
+          batchNo: batchNo.trim(),
+          clientCode: detail.clientCode,
+          packingType,
+          selectedSKUs,
+        },
+      });
+      toast.success(`Created ${data.sow.sowNumber}`);
+      setCreateSowOpen(false);
+      setDetail(null);
+      await load();
+      if (canPack) {
+        navigate(`/pack/${data.sow._id}`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Request failed');
+    } finally {
+      setSowBusy(false);
+    }
   }
 
   const lines = useMemo(
@@ -78,12 +180,16 @@ export function PurchaseOrders() {
     }
   }
 
+  const poSkus = [...new Set((detail?.items || []).map((i) => i.sku))];
+
   return (
     <div className="p-8">
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Purchase Orders</h1>
-          <p className="text-slate-500 mt-1">Create a PO with Client ID and product quantities. PO number is generated automatically.</p>
+          <p className="text-slate-500 mt-1">
+            Click a PO to see scan progress and create a SOW.
+          </p>
         </div>
         <button
           onClick={openCreate}
@@ -100,6 +206,7 @@ export function PurchaseOrders() {
               <th className="px-4 py-3 font-medium">PO</th>
               <th className="px-4 py-3 font-medium">Client ID</th>
               <th className="px-4 py-3 font-medium">Producted order</th>
+              <th className="px-4 py-3 font-medium">Progress</th>
               <th className="px-4 py-3 font-medium">Created</th>
               <th className="px-4 py-3 font-medium">By</th>
             </tr>
@@ -107,25 +214,259 @@ export function PurchaseOrders() {
           <tbody>
             {orders.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-slate-400">
+                <td colSpan={6} className="px-4 py-10 text-center text-slate-400">
                   No purchase orders yet.
                 </td>
               </tr>
             )}
-            {orders.map((order) => (
-              <tr key={order._id} className="border-t align-top">
-                <td className="px-4 py-3 font-mono font-medium">{order.poNumber}</td>
-                <td className="px-4 py-3">{order.clientCode}</td>
-                <td className="px-4 py-3">{order.productOrder || '—'}</td>
-                <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
-                  {new Date(order.createdAt).toLocaleString()}
-                </td>
-                <td className="px-4 py-3">{order.createdBy?.username || '—'}</td>
-              </tr>
-            ))}
+            {orders.map((order) => {
+              const ordered = order.orderedQty ?? 0;
+              const scanned = order.scannedQty ?? 0;
+              const pct = ordered > 0 ? Math.min(100, Math.round((scanned / ordered) * 100)) : 0;
+              return (
+                <tr
+                  key={order._id}
+                  className="border-t align-top hover:bg-amber-50/50 cursor-pointer"
+                  onClick={() => openOrder(order)}
+                >
+                  <td className="px-4 py-3 font-mono font-medium">{order.poNumber}</td>
+                  <td className="px-4 py-3">{order.clientCode}</td>
+                  <td className="px-4 py-3">{order.productOrder || '—'}</td>
+                  <td className="px-4 py-3 min-w-[140px]">
+                    <div className="font-medium">
+                      {scanned}/{ordered}
+                    </div>
+                    <div className="mt-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                      <div
+                        className={`h-full ${pct >= 100 ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">
+                      {order.sowCount || 0} SOW(s)
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
+                    {new Date(order.createdAt).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3">{order.createdBy?.username || '—'}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+
+      {detail && !createSowOpen && (
+        <Modal title={`PO ${detail.poNumber}`} onClose={() => setDetail(null)} wide>
+          <div className="space-y-4">
+            <div className="grid sm:grid-cols-3 gap-3 text-sm">
+              <div className="rounded-xl bg-slate-50 border px-3 py-2">
+                <div className="text-[11px] uppercase text-slate-400">Client</div>
+                <div className="font-semibold">{detail.clientCode}</div>
+              </div>
+              <div className="rounded-xl bg-slate-50 border px-3 py-2">
+                <div className="text-[11px] uppercase text-slate-400">Ordered</div>
+                <div className="font-semibold">{detail.orderedQty ?? 0} products</div>
+              </div>
+              <div className="rounded-xl bg-slate-50 border px-3 py-2">
+                <div className="text-[11px] uppercase text-slate-400">Scanned</div>
+                <div className="font-semibold">
+                  {detail.scannedQty ?? 0} / {detail.orderedQty ?? 0}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div className="text-sm font-medium mb-2">Product progress</div>
+              <table className="w-full text-sm border rounded-xl overflow-hidden">
+                <thead className="bg-slate-50 text-left text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Product</th>
+                    <th className="px-3 py-2 font-medium">Ordered</th>
+                    <th className="px-3 py-2 font-medium">Scanned</th>
+                    <th className="px-3 py-2 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(detail.progressItems || []).map((item) => {
+                    const done = item.scannedQty >= item.orderedQty && item.orderedQty > 0;
+                    return (
+                      <tr key={item.sku} className="border-t">
+                        <td className="px-3 py-2">
+                          <div className="font-medium">{item.productName}</div>
+                          <div className="font-mono text-xs text-slate-400">{item.sku}</div>
+                        </td>
+                        <td className="px-3 py-2">{item.orderedQty}</td>
+                        <td className="px-3 py-2">{item.scannedQty}</td>
+                        <td className="px-3 py-2">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                              done
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {done ? 'Complete' : 'In progress'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {detail.sowNumbers && detail.sowNumbers.length > 0 && (
+              <div className="text-sm text-slate-600">
+                Linked SOWs:{' '}
+                <span className="font-mono">{detail.sowNumbers.join(', ')}</span>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                className="rounded-lg border px-4 py-2 text-sm"
+                onClick={() => setDetail(null)}
+              >
+                Close
+              </button>
+              <button
+                className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950"
+                onClick={startCreateSow}
+              >
+                Create SOW
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {detail && createSowOpen && (
+        <Modal
+          title={`Create SOW for ${detail.poNumber}`}
+          onClose={() => setCreateSowOpen(false)}
+          wide
+        >
+          <form className="space-y-4" onSubmit={submitSow}>
+            <div className="grid sm:grid-cols-2 gap-3 text-sm">
+              <label className="block">
+                <span className="font-medium">PO Number</span>
+                <input
+                  className="mt-1 w-full rounded-lg border bg-slate-50 px-3 py-2 font-mono"
+                  value={detail.poNumber}
+                  readOnly
+                />
+              </label>
+              <label className="block">
+                <span className="font-medium">SOW Number</span>
+                <input
+                  className="mt-1 w-full rounded-lg border bg-slate-50 px-3 py-2 font-mono"
+                  value={previewSow || 'Auto on save'}
+                  readOnly
+                />
+              </label>
+              <label className="block">
+                <span className="font-medium">Client ID</span>
+                <input
+                  className="mt-1 w-full rounded-lg border bg-slate-50 px-3 py-2"
+                  value={detail.clientCode}
+                  readOnly
+                />
+              </label>
+              <label className="block">
+                <span className="font-medium">Batch NO</span>
+                <input
+                  className="mt-1 w-full rounded-lg border px-3 py-2"
+                  value={batchNo}
+                  onChange={(e) => setBatchNo(e.target.value)}
+                  required
+                  autoFocus
+                />
+              </label>
+            </div>
+
+            {detail.productOrder && (
+              <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-sm">
+                <div className="text-xs uppercase tracking-wide text-amber-700 font-medium">
+                  Producted order
+                </div>
+                <div className="mt-0.5 font-medium">{detail.productOrder}</div>
+              </div>
+            )}
+
+            <div>
+              <div className="text-sm font-medium mb-2">Packing type</div>
+              <div className="grid sm:grid-cols-3 gap-2">
+                {TYPES.map((t) => {
+                  const Icon = t.icon;
+                  const selected = packingType === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => {
+                        setPackingType(t.id);
+                        setSelectedSKUs(
+                          t.id === 3 ? poSkus : poSkus.length === 1 ? poSkus : []
+                        );
+                      }}
+                      className={`text-left rounded-xl border p-3 ${
+                        selected ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-200' : ''
+                      }`}
+                    >
+                      <Icon className={selected ? 'text-amber-600' : 'text-slate-400'} size={18} />
+                      <div className="mt-1 font-semibold text-sm">{t.title}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-sm font-medium mb-2">
+                {packingType === 3 ? 'Select SKUs (multiple)' : 'Select SKU (exactly 1)'}
+              </div>
+              <div className="grid sm:grid-cols-2 gap-2 max-h-48 overflow-auto">
+                {(detail.items || []).map((item) => {
+                  const selected = selectedSKUs.includes(item.sku);
+                  return (
+                    <button
+                      key={item.sku}
+                      type="button"
+                      onClick={() => toggleSku(item.sku)}
+                      className={`rounded-lg border px-3 py-2 text-left text-sm ${
+                        selected ? 'border-amber-500 bg-amber-50' : ''
+                      }`}
+                    >
+                      <div className="font-medium">{item.productName}</div>
+                      <div className="font-mono text-xs text-slate-500">
+                        {item.sku} · ordered {item.qty}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex justify-between">
+              <button
+                type="button"
+                className="text-sm text-slate-500"
+                onClick={() => setCreateSowOpen(false)}
+              >
+                Back
+              </button>
+              <button
+                disabled={sowBusy}
+                className="rounded-lg bg-amber-500 px-4 py-2 font-semibold text-slate-950 disabled:opacity-60"
+              >
+                {sowBusy ? 'Creating…' : canPack ? 'Create & open packing' : 'Create SOW'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
 
       {open && (
         <Modal title="Create PO" onClose={() => setOpen(false)} wide>
@@ -138,7 +479,6 @@ export function PurchaseOrders() {
                   value={previewPo || 'Will auto-generate'}
                   readOnly
                 />
-                <span className="mt-1 block text-xs text-slate-500">Generated on save (e.g. PO-1004)</span>
               </label>
               <label className="block text-sm">
                 <span className="font-medium">Client ID</span>
@@ -154,7 +494,6 @@ export function PurchaseOrders() {
 
             <div>
               <div className="text-sm font-medium mb-2">Producted order</div>
-              <p className="text-xs text-slate-500 mb-3">Enter quantity for each product. Empty or 0 is skipped.</p>
               <div className="space-y-2 max-h-72 overflow-auto">
                 {skuOptions.map((opt) => (
                   <div key={opt.sku} className="flex items-center gap-3 rounded-lg border px-3 py-2">
@@ -177,7 +516,9 @@ export function PurchaseOrders() {
               </div>
               {productOrderPreview && (
                 <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm">
-                  <span className="text-xs uppercase tracking-wide text-amber-700 font-medium">Preview</span>
+                  <span className="text-xs uppercase tracking-wide text-amber-700 font-medium">
+                    Preview
+                  </span>
                   <div className="mt-0.5 font-medium">{productOrderPreview}</div>
                 </div>
               )}

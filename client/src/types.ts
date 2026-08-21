@@ -14,6 +14,13 @@ export interface SkuLabel {
 
 export type SowStatus = 'draft' | 'in_progress' | 'completed' | string;
 
+export interface SkuProgress {
+  sku: string;
+  productName: string;
+  orderedQty: number;
+  scannedQty: number;
+}
+
 export interface Sow {
   _id: string;
   sowNumber: string;
@@ -25,6 +32,10 @@ export interface Sow {
   selectedSKUs: string[];
   selectedSKULabels?: SkuLabel[];
   totalAmount?: number;
+  scannedQty?: number;
+  orderedQty?: number | null;
+  progressItems?: SkuProgress[];
+  productOrder?: string;
   status: SowStatus;
   completedAt?: string;
   completedBy?: { username?: string } | null;
@@ -41,6 +52,7 @@ export interface Box {
   boxId: string;
   palletId?: string | null;
   products: BoxProduct[];
+  completed?: boolean;
   status?: string;
 }
 
@@ -73,6 +85,11 @@ export interface PurchaseOrder {
   createdBy?: { username?: string } | null;
   selectedSKUs?: string[];
   items?: Array<{ sku: string; productName: string; qty: number }>;
+  orderedQty?: number;
+  scannedQty?: number;
+  sowCount?: number;
+  sowNumbers?: string[];
+  progressItems?: SkuProgress[];
 }
 
 export interface PoClientLookup {
