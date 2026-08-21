@@ -46,3 +46,14 @@ npm run dev
 
 - Server: `server/src/**/*.ts` — run with `tsx` (`npm run build` emits to `dist/`)
 - Client: `client/src/**/*.tsx` — Vite + `tsc --noEmit` on build
+
+## Windows desktop (.exe)
+
+See [DESKTOP.md](DESKTOP.md). Quick build:
+
+```bash
+npm run install:all
+npm run dist:win
+```
+
+Installers land in the `release/` folder (portable `.exe` + NSIS installer).
