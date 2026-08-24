@@ -6,6 +6,7 @@ import { Product } from '../models/Product.js';
 import { ProductNameOption } from '../models/ProductNameOption.js';
 import { writeAudit } from '../utils/audit.js';
 import { authRequired, requireRole } from '../middleware/auth.js';
+import { assertCanScan, getPurchaseOrderByNumber, syncPoStatus } from '../utils/poProgress.js';
 
 export const packingRouter = Router();
 
@@ -208,6 +209,19 @@ packingRouter.post('/scan', async (req: Request, res: Response) => {
     return res.status(400).json({ message: 'This pallet type allows only one SKU' });
   }
 
+  const po = await getPurchaseOrderByNumber(sow!.poNumber);
+  const qtyError = await assertCanScan(sow!, nextSku, po?.items || []);
+  if (qtyError) {
+    return res.status(qtyError.status).json({
+      code: qtyError.code,
+      message: qtyError.message,
+      sku: qtyError.sku,
+      ordered: qtyError.ordered,
+      target: qtyError.target,
+      scanned: qtyError.scanned,
+    });
+  }
+
   if (!catalog) {
     catalog = await Product.create({
       productId: pid,
@@ -229,6 +243,8 @@ packingRouter.post('/scan', async (req: Request, res: Response) => {
     productId: pid,
     sku: catalog.sku,
   });
+
+  await syncPoStatus(sow!.poNumber);
 
   res.status(201).json({ box, product: catalog });
 });

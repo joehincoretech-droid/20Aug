@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Boxes, Package, Plus, Layers, type LucideIcon } from 'lucide-react';
+import { Boxes, Package, Plus, Layers, ChevronUp, ChevronDown, ChevronsUpDown, Search, X, type LucideIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../api';
 import { Modal } from '../components/Modal';
-import type { PoClientLookup, ProductName, Sow } from '../types';
+import type { PoClientLookup, ProductName, SkuProgress, Sow } from '../types';
 
 const TYPES: Array<{
   id: 1 | 2 | 3;
@@ -59,6 +59,9 @@ export function Dashboard() {
   const [clientAutoFilled, setClientAutoFilled] = useState(false);
   const [poOrder, setPoOrder] = useState('');
   const [poSkus, setPoSkus] = useState<string[]>([]);
+  const [poProgress, setPoProgress] = useState<SkuProgress[]>([]);
+  const [poStatus, setPoStatus] = useState<string>('');
+  const [targetQtys, setTargetQtys] = useState<Record<string, string>>({});
   const poLookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function load() {
@@ -78,6 +81,9 @@ export function Dashboard() {
     setClientAutoFilled(false);
     setPoOrder('');
     setPoSkus([]);
+    setPoProgress([]);
+    setPoStatus('');
+    setTargetQtys({});
     setForm({
       poNumber: '',
       sowNumber: '',
@@ -90,15 +96,28 @@ export function Dashboard() {
 
   const skuLimit = form.packingType === 3 ? Infinity : 1;
 
+  function remainingForSku(sku: string): number {
+    const item = poProgress.find((i) => i.sku === sku);
+    if (!item) return 0;
+    return item.remainingQty ?? Math.max(0, item.orderedQty - item.scannedQty);
+  }
+
   function toggleSku(sku: string) {
+    const rem = remainingForSku(sku);
+    if (poProgress.length && rem <= 0) {
+      toast.error('No remaining quantity for this SKU');
+      return;
+    }
     setForm((prev) => {
       const has = prev.selectedSKUs.includes(sku);
       if (has) {
         return { ...prev, selectedSKUs: prev.selectedSKUs.filter((s) => s !== sku) };
       }
       if (skuLimit === 1) {
+        setTargetQtys((q) => ({ ...q, [sku]: q[sku] || String(rem || 1) }));
         return { ...prev, selectedSKUs: [sku] };
       }
+      setTargetQtys((q) => ({ ...q, [sku]: q[sku] || String(rem || 1) }));
       return { ...prev, selectedSKUs: [...prev.selectedSKUs, sku] };
     });
   }
@@ -112,6 +131,9 @@ export function Dashboard() {
         setClientAutoFilled(false);
         setPoOrder('');
         setPoSkus([]);
+        setPoProgress([]);
+        setPoStatus('');
+        setTargetQtys({});
         setForm((prev) => ({ ...prev, sowNumber: '' }));
         return;
       }
@@ -121,8 +143,23 @@ export function Dashboard() {
           api<{ sowNumber: string }>(`/api/sows/next-number?poNumber=${encodeURIComponent(po)}`),
         ]);
 
+        const progress = data?.progressItems || [];
+        setPoProgress(progress);
+        setPoStatus(data?.status || '');
+
+        const availableSkus = progress.length
+          ? progress.filter((i) => (i.remainingQty ?? i.orderedQty - i.scannedQty) > 0).map((i) => i.sku)
+          : data?.selectedSKUs || [];
+
+        const qtys: Record<string, string> = {};
+        for (const item of progress) {
+          const rem = item.remainingQty ?? Math.max(0, item.orderedQty - item.scannedQty);
+          if (rem > 0) qtys[item.sku] = String(rem);
+        }
+        setTargetQtys(qtys);
+
         setForm((prev) => {
-          const fromPo = data?.selectedSKUs?.length ? data.selectedSKUs : [];
+          const fromPo = availableSkus;
           let selectedSKUs = fromPo.length ? fromPo : prev.selectedSKUs;
           if (prev.packingType && prev.packingType !== 3 && selectedSKUs.length > 1) {
             selectedSKUs = [];
@@ -139,7 +176,7 @@ export function Dashboard() {
 
         if (data?.clientCode) {
           setClientAutoFilled(true);
-          setPoSkus(data.selectedSKUs?.length ? data.selectedSKUs : []);
+          setPoSkus(availableSkus);
           setPoOrder(data.productOrder || '');
         } else {
           setClientAutoFilled(false);
@@ -151,6 +188,8 @@ export function Dashboard() {
         setClientAutoFilled(false);
         setPoOrder('');
         setPoSkus([]);
+        setPoProgress([]);
+        setPoStatus('');
         if (po.includes('-')) {
           toast.error(err instanceof Error ? err.message : 'Could not generate SOW number');
         }
@@ -167,6 +206,24 @@ export function Dashboard() {
       toast.error('Select multiple SKUs');
       return false;
     }
+    if (poStatus === 'fulfilled') {
+      toast.error('This PO is fully fulfilled');
+      return false;
+    }
+    for (const sku of form.selectedSKUs) {
+      const rem = remainingForSku(sku);
+      const qty = Math.floor(Number(targetQtys[sku]));
+      if (poProgress.length) {
+        if (!Number.isFinite(qty) || qty < 1) {
+          toast.error(`Enter a valid target qty for ${sku}`);
+          return false;
+        }
+        if (qty > rem) {
+          toast.error(`Target for ${sku} exceeds remaining (${rem})`);
+          return false;
+        }
+      }
+    }
     return true;
   }
 
@@ -174,7 +231,14 @@ export function Dashboard() {
     if (!validateSkus()) return;
     setBusy(true);
     try {
-      const data = await api<{ sow: Sow }>('/api/sows', { method: 'POST', body: form });
+      const targetItems = form.selectedSKUs.map((sku) => ({
+        sku,
+        targetQty: Math.floor(Number(targetQtys[sku])) || remainingForSku(sku) || 1,
+      }));
+      const data = await api<{ sow: Sow }>('/api/sows', {
+        method: 'POST',
+        body: { ...form, targetItems },
+      });
       toast.success('SOW created');
       setOpen(false);
       resetModal();
@@ -187,11 +251,66 @@ export function Dashboard() {
     }
   }
 
-  const rows = useMemo(() => sows, [sows]);
+  type SortKey = 'sowNumber' | 'batchNo' | 'poNumber' | 'clientCode' | 'progress' | 'status';
+  type SortDir = 'asc' | 'desc';
+
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'packing' | 'completed'>('all');
+  const [sortKey, setSortKey] = useState<SortKey>('sowNumber');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  }
+
   const nameBySku = useMemo(
     () => Object.fromEntries(skuOptions.map((o) => [o.sku, o.name])),
     [skuOptions]
   );
+
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let filtered = sows.filter((sow) => {
+      if (statusFilter !== 'all' && sow.status !== statusFilter) return false;
+      if (!q) return true;
+      const skuNames = (
+        sow.selectedSKULabels ||
+        sow.selectedSKUs.map((sku) => ({ sku, productName: nameBySku[sku] || sku }))
+      )
+        .map((x) => `${x.sku} ${x.productName}`)
+        .join(' ')
+        .toLowerCase();
+      return (
+        sow.sowNumber.toLowerCase().includes(q) ||
+        sow.poNumber.toLowerCase().includes(q) ||
+        sow.clientCode.toLowerCase().includes(q) ||
+        sow.batchNo.toLowerCase().includes(q) ||
+        skuNames.includes(q)
+      );
+    });
+
+    filtered = [...filtered].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'sowNumber') cmp = a.sowNumber.localeCompare(b.sowNumber);
+      else if (sortKey === 'batchNo') cmp = a.batchNo.localeCompare(b.batchNo);
+      else if (sortKey === 'poNumber') cmp = a.poNumber.localeCompare(b.poNumber);
+      else if (sortKey === 'clientCode') cmp = a.clientCode.localeCompare(b.clientCode);
+      else if (sortKey === 'status') cmp = a.status.localeCompare(b.status);
+      else if (sortKey === 'progress') {
+        const pctA = a.orderedQty ? (a.scannedQty ?? 0) / a.orderedQty : 0;
+        const pctB = b.orderedQty ? (b.scannedQty ?? 0) / b.orderedQty : 0;
+        cmp = pctA - pctB;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+
+    return filtered;
+  }, [sows, search, statusFilter, sortKey, sortDir, nameBySku]);
 
   return (
     <div className="p-8">
@@ -211,24 +330,112 @@ export function Dashboard() {
         </button>
       </div>
 
-      <div className="mt-6 bg-white rounded-2xl border shadow-sm overflow-hidden">
+      {/* Filter / search bar */}
+      <div className="mt-6 flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-48">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input
+            className="w-full rounded-lg border bg-white pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+            placeholder="Search SOW, PO, client, SKU…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
+            <button
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              onClick={() => setSearch('')}
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        <div className="flex gap-1.5">
+          {(['all', 'packing', 'draft', 'completed'] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className={`rounded-lg px-3 py-2 text-xs font-medium capitalize transition ${
+                statusFilter === s
+                  ? s === 'all'
+                    ? 'bg-slate-800 text-white'
+                    : s === 'completed'
+                      ? 'bg-emerald-600 text-white'
+                      : s === 'packing'
+                        ? 'bg-amber-500 text-slate-950'
+                        : 'bg-slate-200 text-slate-700'
+                  : 'bg-white border text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+        <div className="text-xs text-slate-400 ml-auto">
+          {rows.length} / {sows.length} rows
+        </div>
+      </div>
+
+      <div className="mt-3 bg-white rounded-2xl border shadow-sm overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-slate-500">
             <tr>
-              <th className="px-4 py-3 font-medium">SOW</th>
-              <th className="px-4 py-3 font-medium">Batch</th>
-              <th className="px-4 py-3 font-medium">PO</th>
-              <th className="px-4 py-3 font-medium">Client Code</th>
+              {(
+                [
+                  { key: 'sowNumber', label: 'SOW' },
+                  { key: 'batchNo', label: 'Batch' },
+                  { key: 'poNumber', label: 'PO' },
+                  { key: 'clientCode', label: 'Client Code' },
+                ] as { key: SortKey; label: string }[]
+              ).map(({ key, label }) => (
+                <th
+                  key={key}
+                  className="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-800 whitespace-nowrap"
+                  onClick={() => handleSort(key)}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    {label}
+                    {sortKey === key ? (
+                      sortDir === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />
+                    ) : (
+                      <ChevronsUpDown size={13} className="opacity-30" />
+                    )}
+                  </span>
+                </th>
+              ))}
               <th className="px-4 py-3 font-medium">SKU / Product Name</th>
-              <th className="px-4 py-3 font-medium">Progress</th>
-              <th className="px-4 py-3 font-medium">Status</th>
+              <th
+                className="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-800"
+                onClick={() => handleSort('progress')}
+              >
+                <span className="inline-flex items-center gap-1">
+                  Progress
+                  {sortKey === 'progress' ? (
+                    sortDir === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />
+                  ) : (
+                    <ChevronsUpDown size={13} className="opacity-30" />
+                  )}
+                </span>
+              </th>
+              <th
+                className="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-800"
+                onClick={() => handleSort('status')}
+              >
+                <span className="inline-flex items-center gap-1">
+                  Status
+                  {sortKey === 'status' ? (
+                    sortDir === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />
+                  ) : (
+                    <ChevronsUpDown size={13} className="opacity-30" />
+                  )}
+                </span>
+              </th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
-                  No SOWs yet. Create one to begin packing.
+                  {sows.length === 0 ? 'No SOWs yet. Create one to begin packing.' : 'No results match your filter.'}
                 </td>
               </tr>
             )}
@@ -353,16 +560,33 @@ export function Dashboard() {
                         key={t.id}
                         type="button"
                         onClick={() =>
-                          setForm((prev) => ({
-                            ...prev,
-                            packingType: t.id,
-                            selectedSKUs:
+                          setForm((prev) => {
+                            const available = poSkus.length
+                              ? poSkus
+                              : skuOptions
+                                  .map((o) => o.sku)
+                                  .filter((sku) => !poProgress.length || remainingForSku(sku) > 0);
+                            const selectedSKUs =
                               t.id === 3
-                                ? poSkus
-                                : poSkus.length === 1
-                                  ? poSkus
-                                  : [],
-                          }))
+                                ? available
+                                : available.length === 1
+                                  ? available
+                                  : [];
+                            setTargetQtys((q) => {
+                              const next = { ...q };
+                              for (const sku of selectedSKUs) {
+                                if (!next[sku]) {
+                                  next[sku] = String(remainingForSku(sku) || 1);
+                                }
+                              }
+                              return next;
+                            });
+                            return {
+                              ...prev,
+                              packingType: t.id,
+                              selectedSKUs,
+                            };
+                          })
                         }
                         className={`text-left rounded-xl border p-4 transition ${
                           selected
@@ -401,24 +625,65 @@ export function Dashboard() {
             <div>
               <p className="text-sm text-slate-500 mb-3">
                 {form.packingType === 3
-                  ? 'Select multiple SKUs (each SKU is linked to a product name).'
-                  : 'Select exactly 1 SKU (linked to its product name).'}
+                  ? 'Select multiple SKUs and set a target qty for this SOW (max = PO remaining).'
+                  : 'Select exactly 1 SKU and set a target qty for this SOW (max = PO remaining).'}
               </p>
+              {poStatus === 'fulfilled' && (
+                <div className="mb-3 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-sm text-emerald-800">
+                  This PO is fully fulfilled — no remaining quantity to allocate.
+                </div>
+              )}
               <div className="grid sm:grid-cols-2 gap-2 max-h-72 overflow-auto">
                 {skuOptions.map((item) => {
                   const selected = form.selectedSKUs.includes(item.sku);
+                  const rem = remainingForSku(item.sku);
+                  const hasPoProgress = poProgress.length > 0;
+                  const exhausted = hasPoProgress && rem <= 0;
+                  const onPo = !hasPoProgress || poProgress.some((p) => p.sku === item.sku);
+                  if (hasPoProgress && !onPo) return null;
                   return (
-                    <button
+                    <div
                       key={item._id}
-                      type="button"
-                      onClick={() => toggleSku(item.sku)}
-                      className={`rounded-lg border px-3 py-2 text-left text-sm ${
-                        selected ? 'border-amber-500 bg-amber-50' : ''
+                      className={`rounded-lg border px-3 py-2 text-sm ${
+                        selected
+                          ? 'border-amber-500 bg-amber-50'
+                          : exhausted
+                            ? 'opacity-50 bg-slate-50'
+                            : ''
                       }`}
                     >
-                      <div className="font-mono text-xs text-slate-500">{item.sku}</div>
-                      <div className="font-medium">{item.name}</div>
-                    </button>
+                      <button
+                        type="button"
+                        disabled={exhausted || poStatus === 'fulfilled'}
+                        onClick={() => toggleSku(item.sku)}
+                        className="w-full text-left disabled:cursor-not-allowed"
+                      >
+                        <div className="font-mono text-xs text-slate-500">{item.sku}</div>
+                        <div className="font-medium">{item.name}</div>
+                        {hasPoProgress && (
+                          <div className="text-xs text-slate-400 mt-0.5">Remaining {rem}</div>
+                        )}
+                      </button>
+                      {selected && (
+                        <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+                          Target qty
+                          <input
+                            type="number"
+                            min={1}
+                            max={hasPoProgress ? rem : undefined}
+                            className="w-20 rounded border px-2 py-1 text-right font-mono text-sm"
+                            value={targetQtys[item.sku] ?? ''}
+                            onChange={(e) =>
+                              setTargetQtys((prev) => ({
+                                ...prev,
+                                [item.sku]: e.target.value,
+                              }))
+                            }
+                          />
+                          {hasPoProgress && <span className="text-slate-400">/ {rem}</span>}
+                        </label>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -427,7 +692,7 @@ export function Dashboard() {
                   Back
                 </button>
                 <button
-                  disabled={busy}
+                  disabled={busy || poStatus === 'fulfilled'}
                   className="rounded-lg bg-amber-500 px-4 py-2 font-semibold text-slate-950 disabled:opacity-60"
                   onClick={confirmSow}
                 >

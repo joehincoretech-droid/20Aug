@@ -8,6 +8,11 @@ import { ProductNameOption } from '../models/ProductNameOption.js';
 import { PurchaseOrder } from '../models/PurchaseOrder.js';
 import { writeAudit } from '../utils/audit.js';
 import { authRequired, requireRole } from '../middleware/auth.js';
+import {
+  remainingBySkuForPo,
+  resolveTargetItems,
+  syncPoStatus,
+} from '../utils/poProgress.js';
 
 export const sowsRouter = Router();
 
@@ -72,6 +77,13 @@ async function withTotals(sows: SowDocument[]) {
   const pos = await PurchaseOrder.find({ poNumber: { $in: poNumbers } });
   const poByNumber = new Map(pos.map((p) => [p.poNumber, p]));
 
+  const remainingByPo = new Map<string, Map<string, number>>();
+  await Promise.all(
+    pos.map(async (po) => {
+      remainingByPo.set(po.poNumber, await remainingBySkuForPo(po.poNumber, po.items || []));
+    })
+  );
+
   return sows.map((sow) => {
     const stats = bySow.get(String(sow._id)) || {
       totalAmount: 0,
@@ -83,23 +95,28 @@ async function withTotals(sows: SowDocument[]) {
       productName: namesBySku.get(sku) || sku,
     }));
     const po = poByNumber.get(sow.poNumber);
-    const orderedQty = po?.items?.reduce((n, i) => n + (i.qty || 0), 0) ?? null;
-    const progressItems = (po?.items || []).map((i) => ({
-      sku: i.sku,
-      productName: i.productName,
-      orderedQty: i.qty,
-      scannedQty: stats.bySku.get(i.sku) || 0,
+    const poItems = po?.items || [];
+    const targets = resolveTargetItems(sow, poItems);
+    const remaining = remainingByPo.get(sow.poNumber) || new Map<string, number>();
+    const progressItems = targets.map((t) => ({
+      sku: t.sku,
+      productName: t.productName,
+      orderedQty: t.targetQty,
+      scannedQty: stats.bySku.get(t.sku) || 0,
+      poRemaining: remaining.get(t.sku) ?? 0,
     }));
+    const orderedQty = targets.reduce((n, t) => n + t.targetQty, 0);
     return {
       ...sow.toObject(),
+      targetItems: targets,
       packingTypeLabel: packingTypeLabel(sow.packingType),
       totalAmount: stats.totalAmount,
       scannedQty: stats.totalAmount,
-      orderedQty,
+      orderedQty: targets.length ? orderedQty : null,
       boxCount: stats.boxCount,
       selectedSKULabels,
       progressItems,
-      productOrder: po?.items?.map((i) => `${i.productName}*${i.qty}`).join('，') || '',
+      productOrder: poItems.map((i) => `${i.productName}*${i.qty}`).join('，') || '',
     };
   });
 }
@@ -147,7 +164,7 @@ sowsRouter.get('/:id', requireRole('admin', 'worker'), async (req: Request, res:
 });
 
 sowsRouter.post('/', requireRole('admin', 'worker', 'po'), async (req: Request, res: Response) => {
-  const { poNumber, batchNo, clientCode, packingType, selectedSKUs } = req.body || {};
+  const { poNumber, batchNo, clientCode, packingType, selectedSKUs, targetItems } = req.body || {};
   if (!poNumber || !batchNo || !clientCode || !packingType) {
     return res.status(400).json({ message: 'PO, Batch, Client, and packing type are required' });
   }
@@ -155,7 +172,7 @@ sowsRouter.post('/', requireRole('admin', 'worker', 'po'), async (req: Request, 
   if (![1, 2, 3].includes(type)) {
     return res.status(400).json({ message: 'Invalid packing type' });
   }
-  const skus = Array.isArray(selectedSKUs) ? selectedSKUs.filter(Boolean) as string[] : [];
+  const skus = Array.isArray(selectedSKUs) ? (selectedSKUs.filter(Boolean) as string[]) : [];
   if (type === 1 || type === 2) {
     if (skus.length !== 1) {
       return res.status(400).json({ message: 'Packing types 1 and 2 require exactly 1 SKU' });
@@ -165,6 +182,58 @@ sowsRouter.post('/', requireRole('admin', 'worker', 'po'), async (req: Request, 
   }
 
   const trimmedPo = String(poNumber).trim();
+  const po = await PurchaseOrder.findOne({ poNumber: trimmedPo });
+  if (!po) {
+    return res.status(400).json({ message: `Purchase order ${trimmedPo} not found` });
+  }
+
+  const remaining = await remainingBySkuForPo(trimmedPo, po.items || []);
+  const poBySku = new Map((po.items || []).map((i) => [i.sku, i]));
+
+  const rawTargets: Array<{ sku?: string; targetQty?: number }> = Array.isArray(targetItems)
+    ? targetItems
+    : skus.map((sku) => ({ sku, targetQty: remaining.get(sku) || 0 }));
+
+  const resolvedTargets: Array<{ sku: string; productName: string; targetQty: number }> = [];
+  for (const row of rawTargets) {
+    const sku = String(row.sku || '').trim();
+    if (!sku || !skus.includes(sku)) continue;
+    const poLine = poBySku.get(sku);
+    if (!poLine) {
+      return res.status(400).json({ message: `SKU ${sku} is not on PO ${trimmedPo}` });
+    }
+    const rem = remaining.get(sku) ?? 0;
+    if (rem <= 0) {
+      return res.status(400).json({
+        message: `No remaining quantity for ${sku} on PO ${trimmedPo}`,
+      });
+    }
+    const qty = Math.floor(Number(row.targetQty));
+    if (!Number.isFinite(qty) || qty < 1) {
+      return res.status(400).json({ message: `Target qty for ${sku} must be at least 1` });
+    }
+    if (qty > rem) {
+      return res.status(400).json({
+        message: `Target qty for ${sku} (${qty}) exceeds remaining (${rem})`,
+      });
+    }
+    resolvedTargets.push({
+      sku,
+      productName: poLine.productName,
+      targetQty: qty,
+    });
+  }
+
+  if (resolvedTargets.length !== skus.length) {
+    return res.status(400).json({
+      message: 'Provide a target quantity for every selected SKU',
+    });
+  }
+
+  if (remaining.size && [...remaining.values()].every((n) => n <= 0)) {
+    return res.status(400).json({ message: `PO ${trimmedPo} is fully fulfilled` });
+  }
+
   let sowNumber: string;
   try {
     sowNumber = await nextSowNumber(trimmedPo);
@@ -180,6 +249,7 @@ sowsRouter.post('/', requireRole('admin', 'worker', 'po'), async (req: Request, 
     clientCode: String(clientCode).trim(),
     packingType: type,
     selectedSKUs: skus,
+    targetItems: resolvedTargets,
     status: 'packing',
     createdBy: req.user!._id,
   });
@@ -196,6 +266,7 @@ sowsRouter.post('/', requireRole('admin', 'worker', 'po'), async (req: Request, 
     poNumber: sow.poNumber,
     packingType: type,
     selectedSKUs: skus,
+    targetItems: resolvedTargets,
     status: sow.status,
   });
 
@@ -284,6 +355,8 @@ sowsRouter.post('/:id/complete', requireRole('admin', 'worker'), async (req: Req
   await sow.save();
 
   const totalAmount = boxes.reduce((n, b) => n + b.products.length, 0);
+  const poStatus = await syncPoStatus(sow.poNumber);
+
   await writeAudit(req.user!._id, 'PACKING_COMPLETE', {
     sowId: sow._id,
     sowNumber: sow.sowNumber,
@@ -294,7 +367,8 @@ sowsRouter.post('/:id/complete', requireRole('admin', 'worker'), async (req: Req
     boxIds: boxes.map((b) => b.boxId),
     palletIds: pallets.map((p) => p.palletId),
     totalAmount,
+    poStatus,
   });
 
-  res.json({ sow, totalAmount });
+  res.json({ sow, totalAmount, poStatus });
 });

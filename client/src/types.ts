@@ -12,13 +12,21 @@ export interface SkuLabel {
   productName: string;
 }
 
-export type SowStatus = 'draft' | 'in_progress' | 'completed' | string;
+export type SowStatus = 'draft' | 'in_progress' | 'packing' | 'completed' | string;
+
+export interface TargetItem {
+  sku: string;
+  productName: string;
+  targetQty: number;
+}
 
 export interface SkuProgress {
   sku: string;
   productName: string;
   orderedQty: number;
   scannedQty: number;
+  remainingQty?: number;
+  poRemaining?: number;
 }
 
 export interface Sow {
@@ -31,6 +39,7 @@ export interface Sow {
   packingTypeLabel?: string;
   selectedSKUs: string[];
   selectedSKULabels?: SkuLabel[];
+  targetItems?: TargetItem[];
   totalAmount?: number;
   scannedQty?: number;
   orderedQty?: number | null;
@@ -87,6 +96,8 @@ export interface PurchaseOrder {
   items?: Array<{ sku: string; productName: string; qty: number }>;
   orderedQty?: number;
   scannedQty?: number;
+  remainingQty?: number;
+  status?: 'open' | 'fulfilled' | string;
   sowCount?: number;
   sowNumbers?: string[];
   progressItems?: SkuProgress[];
@@ -96,4 +107,10 @@ export interface PoClientLookup {
   clientCode?: string;
   selectedSKUs?: string[];
   productOrder?: string;
+  items?: Array<{ sku: string; productName: string; qty: number }>;
+  orderedQty?: number;
+  scannedQty?: number;
+  remainingQty?: number;
+  status?: 'open' | 'fulfilled' | string;
+  progressItems?: SkuProgress[];
 }

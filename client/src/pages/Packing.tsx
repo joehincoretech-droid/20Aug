@@ -156,6 +156,10 @@ export function Packing() {
         toast.error(`${err.data.productId} have been store in ${err.data.boxId}`, { duration: 3000 });
       } else if (err instanceof ApiError && err.data?.code === 'SKU_REQUIRED') {
         setUnknown({ productId: pid });
+      } else if (err instanceof ApiError && err.data?.code === 'SOW_QTY_FULL') {
+        toast.error(err.message || `SOW target met for ${err.data.sku}`, { duration: 4000 });
+      } else if (err instanceof ApiError && err.data?.code === 'PO_QTY_FULL') {
+        toast.error(err.message || `PO order met for ${err.data.sku}`, { duration: 4000 });
       } else {
         toast.error(err instanceof Error ? err.message : 'Request failed');
       }
@@ -242,6 +246,14 @@ export function Packing() {
   const hasPallet = Boolean(currentPallet);
   const boxLinked = Boolean(currentBox?.palletId);
 
+  const progressItems = sow.progressItems || [];
+  const sowTargetsMet =
+    progressItems.length > 0 &&
+    progressItems.every((item) => item.orderedQty > 0 && item.scannedQty >= item.orderedQty);
+  const metSkus = progressItems.filter(
+    (item) => item.orderedQty > 0 && item.scannedQty >= item.orderedQty
+  );
+
   type NextStep = 'box' | 'pallet' | 'link' | 'scan';
   let nextStep: NextStep = 'scan';
   if (!hasBox) nextStep = 'box';
@@ -252,6 +264,13 @@ export function Packing() {
   const nextStepBanner = (() => {
     if (readOnly) {
       return { tone: 'ready' as const, text: 'This SOW is completed — scanning is read-only.' };
+    }
+    if (sowTargetsMet) {
+      const names = metSkus.map((i) => `${i.productName} (${i.scannedQty}/${i.orderedQty})`).join(', ');
+      return {
+        tone: 'ready' as const,
+        text: `SOW targets met: ${names}. Complete box and Finish SOW.`,
+      };
     }
     if (currentBox?.completed) {
       return {
@@ -278,6 +297,9 @@ export function Packing() {
       text: `Scanning into ${currentBox!.boxId}${palletPart} · capacity ${boxFill}/30`,
     };
   })();
+
+  const scanDisabled =
+    readOnly || !hasBox || Boolean(currentBox?.completed) || sowTargetsMet;
 
   return (
     <div className="p-8 space-y-6">
@@ -326,7 +348,7 @@ export function Packing() {
           <InfoItem label="Batch NO" value={sow.batchNo} />
           <InfoItem label="Packing Type" value={sow.packingTypeLabel} />
           <InfoItem
-            label="Scanned / Ordered"
+            label="Scanned / Target"
             value={
               sow.orderedQty != null
                 ? `${totalPacked} / ${sow.orderedQty}`
@@ -337,7 +359,7 @@ export function Packing() {
         {sow.progressItems && sow.progressItems.length > 0 && (
           <div className="mt-4 pt-4 border-t">
             <div className="text-xs font-medium uppercase tracking-wide text-slate-400 mb-2">
-              PO product progress (this SOW)
+              SOW target progress
             </div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {sow.progressItems.map((item) => (
@@ -348,6 +370,11 @@ export function Packing() {
                   <div className="min-w-0">
                     <div className="font-medium truncate">{item.productName}</div>
                     <div className="font-mono text-[11px] text-slate-400">{item.sku}</div>
+                    {item.poRemaining != null && (
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        PO remaining {item.poRemaining}
+                      </div>
+                    )}
                   </div>
                   <div
                     className={`font-mono text-sm font-semibold shrink-0 ${
@@ -520,13 +547,13 @@ export function Packing() {
 
         <ProductScanPanel
           step={needsPallet ? 3 : 2}
-          active={nextStep === 'scan' && !currentBox?.completed}
+          active={nextStep === 'scan' && !currentBox?.completed && !sowTargetsMet}
           value={productId}
           onChange={setProductId}
           onCommit={() => scanProduct()}
           onScan={() => setScanner('product')}
           inputRef={productInput}
-          disabled={readOnly || !hasBox || Boolean(currentBox?.completed)}
+          disabled={scanDisabled}
           destination={
             currentBox
               ? {
@@ -538,6 +565,7 @@ export function Packing() {
           }
           needsBox={!hasBox}
           boxCompleted={Boolean(currentBox?.completed)}
+          targetsMet={sowTargetsMet}
         />
       </div>
 
@@ -732,6 +760,7 @@ function ProductScanPanel({
   destination,
   needsBox,
   boxCompleted,
+  targetsMet,
 }: {
   step: number;
   active: boolean;
@@ -744,6 +773,7 @@ function ProductScanPanel({
   destination: { boxId: string; palletId?: string | null; capacity: string } | null;
   needsBox: boolean;
   boxCompleted?: boolean;
+  targetsMet?: boolean;
 }) {
   return (
     <section
@@ -784,9 +814,11 @@ function ProductScanPanel({
           placeholder={
             needsBox
               ? 'Set a Box ID first…'
-              : boxCompleted
-                ? 'This box is completed'
-                : 'Scan or type Product ID'
+              : targetsMet
+                ? 'SOW targets met'
+                : boxCompleted
+                  ? 'This box is completed'
+                  : 'Scan or type Product ID'
           }
           autoComplete="off"
         />
@@ -812,6 +844,10 @@ function ProductScanPanel({
       <div className="mt-3">
         {needsBox ? (
           <p className="text-sm text-amber-700">Set a Box ID in Container setup before scanning products.</p>
+        ) : targetsMet ? (
+          <p className="text-sm text-emerald-700">
+            All SOW targets are met. Complete any open box and press Finish / Confirm.
+          </p>
         ) : boxCompleted ? (
           <p className="text-sm text-amber-700">
             Box <span className="font-mono font-semibold">{destination?.boxId}</span> is completed.

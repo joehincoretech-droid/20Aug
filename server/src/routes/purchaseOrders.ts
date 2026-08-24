@@ -31,11 +31,17 @@ purchaseOrdersRouter.get('/', requireRole('admin', 'po'), async (_req: Request, 
   const withProgress = await Promise.all(
     orders.map(async (o) => {
       const progress = await buildPoProgress(o.poNumber, o.items || []);
+      if (o.status !== progress.status) {
+        o.status = progress.status;
+        await o.save();
+      }
       return {
         ...o.toObject(),
         productOrder: orderLabel(o.items),
         orderedQty: progress.orderedQty,
         scannedQty: progress.scannedQty,
+        remainingQty: progress.remainingQty,
+        status: progress.status,
         sowCount: progress.sowCount,
         progressItems: progress.items,
       };
@@ -53,12 +59,18 @@ purchaseOrdersRouter.get('/:poNumber', async (req: Request, res: Response) => {
   const po = await PurchaseOrder.findOne({ poNumber: req.params.poNumber });
   if (!po) return res.status(404).json({ message: 'PO not found' });
   const progress = await buildPoProgress(po.poNumber, po.items || []);
+  if (po.status !== progress.status) {
+    po.status = progress.status;
+    await po.save();
+  }
   res.json({
     order: {
       ...po.toObject(),
       productOrder: orderLabel(po.items),
       orderedQty: progress.orderedQty,
       scannedQty: progress.scannedQty,
+      remainingQty: progress.remainingQty,
+      status: progress.status,
       sowCount: progress.sowCount,
       sowNumbers: progress.sowNumbers,
       progressItems: progress.items,

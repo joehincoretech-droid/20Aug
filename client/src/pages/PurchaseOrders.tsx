@@ -32,6 +32,7 @@ export function PurchaseOrders() {
   const [batchNo, setBatchNo] = useState('');
   const [packingType, setPackingType] = useState<1 | 2 | 3 | null>(null);
   const [selectedSKUs, setSelectedSKUs] = useState<string[]>([]);
+  const [targetQtys, setTargetQtys] = useState<Record<string, string>>({});
   const [previewSow, setPreviewSow] = useState('');
 
   async function load() {
@@ -72,10 +73,23 @@ export function PurchaseOrders() {
 
   async function startCreateSow() {
     if (!detail) return;
+    if (detail.status === 'fulfilled' || (detail.remainingQty ?? 0) <= 0) {
+      toast.error('This PO is fully fulfilled — no remaining quantity');
+      return;
+    }
     setBatchNo('');
     setPackingType(null);
-    const skus = [...new Set((detail.items || []).map((i) => i.sku))];
+    const available = (detail.progressItems || []).filter(
+      (i) => (i.remainingQty ?? Math.max(0, i.orderedQty - i.scannedQty)) > 0
+    );
+    const skus = available.map((i) => i.sku);
     setSelectedSKUs(skus);
+    const qtys: Record<string, string> = {};
+    for (const item of available) {
+      const rem = item.remainingQty ?? Math.max(0, item.orderedQty - item.scannedQty);
+      qtys[item.sku] = String(rem);
+    }
+    setTargetQtys(qtys);
     try {
       const data = await api<{ sowNumber: string }>(
         `/api/sows/next-number?poNumber=${encodeURIComponent(detail.poNumber)}`
@@ -87,12 +101,31 @@ export function PurchaseOrders() {
     setCreateSowOpen(true);
   }
 
+  function remainingForSku(sku: string): number {
+    const item = detail?.progressItems?.find((i) => i.sku === sku);
+    if (!item) return 0;
+    return item.remainingQty ?? Math.max(0, item.orderedQty - item.scannedQty);
+  }
+
   function toggleSku(sku: string) {
+    const rem = remainingForSku(sku);
+    if (rem <= 0) {
+      toast.error('No remaining quantity for this SKU');
+      return;
+    }
     setSelectedSKUs((prev) => {
       if (packingType === 1 || packingType === 2) {
-        return prev.includes(sku) && prev.length === 1 ? [] : [sku];
+        const next = prev.includes(sku) && prev.length === 1 ? [] : [sku];
+        if (next.includes(sku) && !targetQtys[sku]) {
+          setTargetQtys((q) => ({ ...q, [sku]: String(rem) }));
+        }
+        return next;
       }
-      return prev.includes(sku) ? prev.filter((s) => s !== sku) : [...prev, sku];
+      if (prev.includes(sku)) {
+        return prev.filter((s) => s !== sku);
+      }
+      setTargetQtys((q) => ({ ...q, [sku]: q[sku] || String(rem) }));
+      return [...prev, sku];
     });
   }
 
@@ -115,6 +148,21 @@ export function PurchaseOrders() {
       toast.error('Select multiple SKUs');
       return;
     }
+    const targetItems = selectedSKUs.map((sku) => {
+      const rem = remainingForSku(sku);
+      const qty = Math.floor(Number(targetQtys[sku]));
+      return { sku, targetQty: qty, rem };
+    });
+    for (const t of targetItems) {
+      if (!Number.isFinite(t.targetQty) || t.targetQty < 1) {
+        toast.error(`Enter a valid target qty for ${t.sku}`);
+        return;
+      }
+      if (t.targetQty > t.rem) {
+        toast.error(`Target for ${t.sku} exceeds remaining (${t.rem})`);
+        return;
+      }
+    }
     setSowBusy(true);
     try {
       const data = await api<{ sow: Sow }>('/api/sows', {
@@ -125,6 +173,7 @@ export function PurchaseOrders() {
           clientCode: detail.clientCode,
           packingType,
           selectedSKUs,
+          targetItems: targetItems.map(({ sku, targetQty }) => ({ sku, targetQty })),
         },
       });
       toast.success(`Created ${data.sow.sowNumber}`);
@@ -180,8 +229,6 @@ export function PurchaseOrders() {
     }
   }
 
-  const poSkus = [...new Set((detail?.items || []).map((i) => i.sku))];
-
   return (
     <div className="p-8">
       <div className="flex items-end justify-between gap-4">
@@ -222,7 +269,9 @@ export function PurchaseOrders() {
             {orders.map((order) => {
               const ordered = order.orderedQty ?? 0;
               const scanned = order.scannedQty ?? 0;
+              const remaining = order.remainingQty ?? Math.max(0, ordered - scanned);
               const pct = ordered > 0 ? Math.min(100, Math.round((scanned / ordered) * 100)) : 0;
+              const fulfilled = order.status === 'fulfilled' || (ordered > 0 && remaining <= 0);
               return (
                 <tr
                   key={order._id}
@@ -235,6 +284,13 @@ export function PurchaseOrders() {
                   <td className="px-4 py-3 min-w-[140px]">
                     <div className="font-medium">
                       {scanned}/{ordered}
+                      {fulfilled ? (
+                        <span className="ml-1 text-[11px] font-medium text-emerald-700">fulfilled</span>
+                      ) : (
+                        <span className="ml-1 text-[11px] font-normal text-slate-400">
+                          · {remaining} left
+                        </span>
+                      )}
                     </div>
                     <div className="mt-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
                       <div
@@ -285,11 +341,13 @@ export function PurchaseOrders() {
                     <th className="px-3 py-2 font-medium">Product</th>
                     <th className="px-3 py-2 font-medium">Ordered</th>
                     <th className="px-3 py-2 font-medium">Scanned</th>
+                    <th className="px-3 py-2 font-medium">Remaining</th>
                     <th className="px-3 py-2 font-medium">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(detail.progressItems || []).map((item) => {
+                    const rem = item.remainingQty ?? Math.max(0, item.orderedQty - item.scannedQty);
                     const done = item.scannedQty >= item.orderedQty && item.orderedQty > 0;
                     return (
                       <tr key={item.sku} className="border-t">
@@ -299,6 +357,7 @@ export function PurchaseOrders() {
                         </td>
                         <td className="px-3 py-2">{item.orderedQty}</td>
                         <td className="px-3 py-2">{item.scannedQty}</td>
+                        <td className="px-3 py-2">{rem}</td>
                         <td className="px-3 py-2">
                           <span
                             className={`rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -332,8 +391,17 @@ export function PurchaseOrders() {
                 Close
               </button>
               <button
-                className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950"
+                disabled={
+                  detail.status === 'fulfilled' ||
+                  (detail.remainingQty ?? 0) <= 0
+                }
+                className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50"
                 onClick={startCreateSow}
+                title={
+                  detail.status === 'fulfilled' || (detail.remainingQty ?? 0) <= 0
+                    ? 'PO is fully fulfilled'
+                    : undefined
+                }
               >
                 Create SOW
               </button>
@@ -407,9 +475,25 @@ export function PurchaseOrders() {
                       type="button"
                       onClick={() => {
                         setPackingType(t.id);
-                        setSelectedSKUs(
-                          t.id === 3 ? poSkus : poSkus.length === 1 ? poSkus : []
-                        );
+                        const available = (detail.items || [])
+                          .map((i) => i.sku)
+                          .filter((sku) => remainingForSku(sku) > 0);
+                        const next =
+                          t.id === 3
+                            ? available
+                            : available.length === 1
+                              ? available
+                              : [];
+                        setSelectedSKUs(next);
+                        setTargetQtys((prev) => {
+                          const nextQtys = { ...prev };
+                          for (const sku of next) {
+                            if (!nextQtys[sku]) {
+                              nextQtys[sku] = String(remainingForSku(sku));
+                            }
+                          }
+                          return nextQtys;
+                        });
                       }}
                       className={`text-left rounded-xl border p-3 ${
                         selected ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-200' : ''
@@ -425,25 +509,56 @@ export function PurchaseOrders() {
 
             <div>
               <div className="text-sm font-medium mb-2">
-                {packingType === 3 ? 'Select SKUs (multiple)' : 'Select SKU (exactly 1)'}
+                {packingType === 3 ? 'Select SKUs & target qty' : 'Select SKU & target qty'}
               </div>
-              <div className="grid sm:grid-cols-2 gap-2 max-h-48 overflow-auto">
+              <div className="grid sm:grid-cols-2 gap-2 max-h-56 overflow-auto">
                 {(detail.items || []).map((item) => {
+                  const rem = remainingForSku(item.sku);
                   const selected = selectedSKUs.includes(item.sku);
+                  const exhausted = rem <= 0;
                   return (
-                    <button
+                    <div
                       key={item.sku}
-                      type="button"
-                      onClick={() => toggleSku(item.sku)}
-                      className={`rounded-lg border px-3 py-2 text-left text-sm ${
-                        selected ? 'border-amber-500 bg-amber-50' : ''
+                      className={`rounded-lg border px-3 py-2 text-sm ${
+                        selected
+                          ? 'border-amber-500 bg-amber-50'
+                          : exhausted
+                            ? 'opacity-50 bg-slate-50'
+                            : ''
                       }`}
                     >
-                      <div className="font-medium">{item.productName}</div>
-                      <div className="font-mono text-xs text-slate-500">
-                        {item.sku} · ordered {item.qty}
-                      </div>
-                    </button>
+                      <button
+                        type="button"
+                        disabled={exhausted}
+                        onClick={() => toggleSku(item.sku)}
+                        className="w-full text-left disabled:cursor-not-allowed"
+                      >
+                        <div className="font-medium">{item.productName}</div>
+                        <div className="font-mono text-xs text-slate-500">
+                          {item.sku} · ordered {item.qty} · remaining {rem}
+                        </div>
+                      </button>
+                      {selected && (
+                        <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+                          Target qty
+                          <input
+                            type="number"
+                            min={1}
+                            max={rem}
+                            className="w-20 rounded border px-2 py-1 text-right font-mono text-sm"
+                            value={targetQtys[item.sku] ?? ''}
+                            onChange={(e) =>
+                              setTargetQtys((prev) => ({
+                                ...prev,
+                                [item.sku]: e.target.value,
+                              }))
+                            }
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          <span className="text-slate-400">/ {rem}</span>
+                        </label>
+                      )}
+                    </div>
                   );
                 })}
               </div>

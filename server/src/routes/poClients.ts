@@ -4,6 +4,7 @@ import { PoClient } from '../models/PoClient.js';
 import { Sow } from '../models/Sow.js';
 import { writeAudit } from '../utils/audit.js';
 import { authRequired, requireRole } from '../middleware/auth.js';
+import { buildPoProgress } from '../utils/poProgress.js';
 
 export const poClientsRouter = Router();
 
@@ -17,12 +18,18 @@ poClientsRouter.get('/lookup/:poNumber', async (req: Request, res: Response) => 
 
   const order = await PurchaseOrder.findOne({ poNumber });
   if (order) {
+    const progress = await buildPoProgress(order.poNumber, order.items || []);
     return res.json({
       poNumber: order.poNumber,
       clientCode: order.clientCode,
       items: order.items,
       productOrder: order.items.map((i) => `${i.productName}*${i.qty}`).join('，'),
       selectedSKUs: [...new Set(order.items.map((i) => i.sku))],
+      orderedQty: progress.orderedQty,
+      scannedQty: progress.scannedQty,
+      remainingQty: progress.remainingQty,
+      status: progress.status,
+      progressItems: progress.items,
       source: 'purchase_order',
     });
   }
