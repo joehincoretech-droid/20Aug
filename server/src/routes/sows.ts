@@ -19,9 +19,9 @@ export const sowsRouter = Router();
 sowsRouter.use(authRequired);
 
 function packingTypeLabel(type: number): string {
-  if (type === 1) return 'Box Only';
-  if (type === 2) return '1 SKU / Pallet';
-  if (type === 3) return 'Multi-SKU / Pallet';
+  if (type === 1) return 'Only box';
+  if (type === 2) return '1 pallet with one SKU';
+  if (type === 3) return '1 pallet with multi SKU';
   return 'Unknown';
 }
 
@@ -38,18 +38,22 @@ async function nextSowNumber(poNumber: string): Promise<string> {
   if (!suffix) {
     throw Object.assign(new Error('Invalid PO number'), { status: 400 });
   }
-  const prefix = `SOW-${suffix}-`;
+  const escaped = suffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Match both legacy SOW-1001-0001 and new SOW-1001/0001
   const existing = await Sow.find({
     poNumber: String(poNumber).trim(),
-    sowNumber: new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\d{4}$`),
+    sowNumber: new RegExp(`^SOW-${escaped}[-/]\\d{4}$`),
   }).select('sowNumber');
 
   let max = 0;
   for (const sow of existing) {
-    const seq = Number(String(sow.sowNumber).slice(prefix.length));
-    if (Number.isFinite(seq)) max = Math.max(max, seq);
+    const match = String(sow.sowNumber).match(/[-/](\d{4})$/);
+    if (match) {
+      const seq = Number(match[1]);
+      if (Number.isFinite(seq)) max = Math.max(max, seq);
+    }
   }
-  return `${prefix}${String(max + 1).padStart(4, '0')}`;
+  return `SOW-${suffix}/${String(max + 1).padStart(4, '0')}`;
 }
 
 async function skuNameMap(): Promise<Map<string, string>> {

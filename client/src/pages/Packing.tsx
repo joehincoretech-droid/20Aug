@@ -160,6 +160,12 @@ export function Packing() {
         toast.error(err.message || `SOW target met for ${err.data.sku}`, { duration: 4000 });
       } else if (err instanceof ApiError && err.data?.code === 'PO_QTY_FULL') {
         toast.error(err.message || `PO order met for ${err.data.sku}`, { duration: 4000 });
+      } else if (err instanceof ApiError && err.data?.code === 'MIXED_SKU_BOX') {
+        toast.error(
+          err.message ||
+            `Box already contains ${err.data.existingSku}. One box = one SKU.`,
+          { duration: 4000 }
+        );
       } else {
         toast.error(err instanceof Error ? err.message : 'Request failed');
       }
@@ -300,6 +306,13 @@ export function Packing() {
 
   const scanDisabled =
     readOnly || !hasBox || Boolean(currentBox?.completed) || sowTargetsMet;
+
+  const boxSku = currentBox?.products[0]?.sku || null;
+  const canCompleteBox =
+    !readOnly &&
+    Boolean(currentBox) &&
+    !currentBox?.completed &&
+    (boxFill >= 30 || sowTargetsMet);
 
   return (
     <div className="p-8 space-y-6">
@@ -466,11 +479,20 @@ export function Packing() {
           )}
 
           <button
-            disabled={readOnly || !currentBox}
+            disabled={!canCompleteBox}
             onClick={completeBox}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-100 disabled:opacity-50"
+            className={`w-full rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${
+              canCompleteBox
+                ? 'border-2 border-emerald-500 bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
+                : 'border border-slate-300 bg-white hover:bg-slate-100'
+            }`}
           >
             Complete Box
+            {canCompleteBox && boxFill >= 30
+              ? ' · full'
+              : canCompleteBox && sowTargetsMet
+                ? ' · SOW done'
+                : ''}
           </button>
 
           {needsPallet && (
@@ -560,6 +582,8 @@ export function Packing() {
                   boxId: currentBox.boxId,
                   palletId: currentBox.palletId,
                   capacity: `${boxFill}/30`,
+                  sku: boxSku,
+                  needsPallet: Boolean(needsPallet),
                 }
               : null
           }
@@ -770,7 +794,13 @@ function ProductScanPanel({
   onScan: () => void;
   inputRef: RefObject<HTMLInputElement>;
   disabled?: boolean;
-  destination: { boxId: string; palletId?: string | null; capacity: string } | null;
+  destination: {
+    boxId: string;
+    palletId?: string | null;
+    capacity: string;
+    sku?: string | null;
+    needsPallet?: boolean;
+  } | null;
   needsBox: boolean;
   boxCompleted?: boolean;
   targetsMet?: boolean;
@@ -857,14 +887,24 @@ function ProductScanPanel({
           <p className="text-sm text-slate-600">
             Packing into{' '}
             <span className="font-mono font-semibold text-slate-900">{destination.boxId}</span>
-            {destination.palletId ? (
+            {destination.sku ? (
               <>
                 {' '}
-                · pallet <span className="font-mono font-semibold">{destination.palletId}</span>
+                · SKU <span className="font-mono font-semibold">{destination.sku}</span> only
               </>
             ) : (
-              <span className="text-amber-700"> · unlinked</span>
+              <span className="text-slate-500"> · empty box (first scan sets SKU)</span>
             )}
+            {destination.needsPallet ? (
+              destination.palletId ? (
+                <>
+                  {' '}
+                  · pallet <span className="font-mono font-semibold">{destination.palletId}</span>
+                </>
+              ) : (
+                <span className="text-amber-700"> · unlinked</span>
+              )
+            ) : null}
           </p>
         ) : null}
       </div>

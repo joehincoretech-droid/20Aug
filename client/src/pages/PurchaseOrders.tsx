@@ -8,9 +8,9 @@ import { useAuth } from '../context/AuthContext';
 import type { ProductName, PurchaseOrder, Sow } from '../types';
 
 const TYPES: Array<{ id: 1 | 2 | 3; title: string; icon: LucideIcon }> = [
-  { id: 1, title: 'Box only', icon: Package },
-  { id: 2, title: '1 SKU / Pallet', icon: Layers },
-  { id: 3, title: 'Multi-SKU / Pallet', icon: Boxes },
+  { id: 1, title: 'Only box', icon: Package },
+  { id: 2, title: '1 pallet with one SKU', icon: Layers },
+  { id: 3, title: '1 pallet with multi SKU', icon: Boxes },
 ];
 
 export function PurchaseOrders() {
@@ -509,9 +509,11 @@ export function PurchaseOrders() {
 
             <div>
               <div className="text-sm font-medium mb-2">
-                {packingType === 3 ? 'Select SKUs & target qty' : 'Select SKU & target qty'}
+                {packingType === 3
+                  ? 'Select products from this PO & target qty (each box = one SKU)'
+                  : 'Select product from this PO & target qty (each box = one SKU)'}
               </div>
-              <div className="grid sm:grid-cols-2 gap-2 max-h-56 overflow-auto">
+              <div className="max-h-56 overflow-auto rounded-xl border divide-y bg-white">
                 {(detail.items || []).map((item) => {
                   const rem = remainingForSku(item.sku);
                   const selected = selectedSKUs.includes(item.sku);
@@ -519,27 +521,39 @@ export function PurchaseOrders() {
                   return (
                     <div
                       key={item.sku}
-                      className={`rounded-lg border px-3 py-2 text-sm ${
+                      className={`flex flex-wrap items-center gap-3 px-3 py-2.5 text-sm ${
                         selected
-                          ? 'border-amber-500 bg-amber-50'
+                          ? 'bg-amber-50'
                           : exhausted
                             ? 'opacity-50 bg-slate-50'
-                            : ''
+                            : 'hover:bg-slate-50'
                       }`}
                     >
                       <button
                         type="button"
                         disabled={exhausted}
                         onClick={() => toggleSku(item.sku)}
-                        className="w-full text-left disabled:cursor-not-allowed"
+                        className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-not-allowed"
                       >
-                        <div className="font-medium">{item.productName}</div>
-                        <div className="font-mono text-xs text-slate-500">
-                          {item.sku} · ordered {item.qty} · remaining {rem}
-                        </div>
+                        <span
+                          className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                            selected
+                              ? 'border-amber-500 bg-amber-500 text-white'
+                              : 'border-slate-300 bg-white'
+                          }`}
+                          aria-hidden
+                        >
+                          {selected ? '✓' : ''}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block font-medium truncate">{item.productName}</span>
+                          <span className="block font-mono text-xs text-slate-500">
+                            {item.sku} · ordered {item.qty} · remaining {rem}
+                          </span>
+                        </span>
                       </button>
                       {selected && (
-                        <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+                        <label className="ml-auto flex shrink-0 items-center gap-2 text-xs text-slate-600">
                           Target qty
                           <input
                             type="number"

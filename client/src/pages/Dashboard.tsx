@@ -14,20 +14,20 @@ const TYPES: Array<{
 }> = [
   {
     id: 1,
-    title: 'Box only',
-    desc: 'Pack products into boxes. No pallet required.',
+    title: 'Only box',
+    desc: 'Pack into boxes only. Each box holds one SKU. No pallet required.',
     icon: Package,
   },
   {
     id: 2,
-    title: 'Only one SKU in one Pallet',
-    desc: 'Each pallet holds a single SKU across its boxes.',
+    title: '1 pallet with one SKU',
+    desc: 'Pallet holds boxes of a single SKU. Each box is still one SKU.',
     icon: Layers,
   },
   {
     id: 3,
-    title: 'More than one SKU in one Pallet',
-    desc: 'Boxes of mixed SKUs can share a pallet.',
+    title: '1 pallet with multi SKU',
+    desc: 'Pallet may hold boxes of different SKUs. Each box is still one SKU.',
     icon: Boxes,
   },
 ];
@@ -381,54 +381,53 @@ export function Dashboard() {
             <tr>
               {(
                 [
-                  { key: 'sowNumber', label: 'SOW' },
+                  { key: 'sowNumber', label: 'SOW number' },
                   { key: 'batchNo', label: 'Batch' },
                   { key: 'poNumber', label: 'PO' },
-                  { key: 'clientCode', label: 'Client Code' },
+                  { key: 'clientCode', label: 'Client' },
                 ] as { key: SortKey; label: string }[]
               ).map(({ key, label }) => (
-                <th
-                  key={key}
-                  className="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-800 whitespace-nowrap"
-                  onClick={() => handleSort(key)}
-                >
-                  <span className="inline-flex items-center gap-1">
+                <th key={key} className="px-4 py-3 font-medium whitespace-nowrap">
+                  <button
+                    type="button"
+                    onClick={() => handleSort(key)}
+                    className={`inline-flex items-center gap-1 rounded-md px-1 py-0.5 -mx-1 hover:bg-slate-200/70 hover:text-slate-900 ${
+                      sortKey === key ? 'text-slate-900' : ''
+                    }`}
+                  >
                     {label}
                     {sortKey === key ? (
                       sortDir === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />
                     ) : (
-                      <ChevronsUpDown size={13} className="opacity-30" />
+                      <ChevronsUpDown size={13} className="opacity-40" />
                     )}
-                  </span>
+                  </button>
                 </th>
               ))}
               <th className="px-4 py-3 font-medium">SKU / Product Name</th>
-              <th
-                className="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-800"
-                onClick={() => handleSort('progress')}
-              >
-                <span className="inline-flex items-center gap-1">
-                  Progress
-                  {sortKey === 'progress' ? (
-                    sortDir === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />
-                  ) : (
-                    <ChevronsUpDown size={13} className="opacity-30" />
-                  )}
-                </span>
-              </th>
-              <th
-                className="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-800"
-                onClick={() => handleSort('status')}
-              >
-                <span className="inline-flex items-center gap-1">
-                  Status
-                  {sortKey === 'status' ? (
-                    sortDir === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />
-                  ) : (
-                    <ChevronsUpDown size={13} className="opacity-30" />
-                  )}
-                </span>
-              </th>
+              {(
+                [
+                  { key: 'progress', label: 'Progress' },
+                  { key: 'status', label: 'Status' },
+                ] as { key: SortKey; label: string }[]
+              ).map(({ key, label }) => (
+                <th key={key} className="px-4 py-3 font-medium whitespace-nowrap">
+                  <button
+                    type="button"
+                    onClick={() => handleSort(key)}
+                    className={`inline-flex items-center gap-1 rounded-md px-1 py-0.5 -mx-1 hover:bg-slate-200/70 hover:text-slate-900 ${
+                      sortKey === key ? 'text-slate-900' : ''
+                    }`}
+                  >
+                    {label}
+                    {sortKey === key ? (
+                      sortDir === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />
+                    ) : (
+                      <ChevronsUpDown size={13} className="opacity-40" />
+                    )}
+                  </button>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -522,7 +521,7 @@ export function Dashboard() {
                   readOnly
                   hint={
                     form.sowNumber
-                      ? 'Auto-generated from PO (SOW-{PO#}-{####})'
+                      ? 'Auto-generated from PO (SOW-{PO#}/{####})'
                       : 'Enter a PO number to auto-generate'
                   }
                 />
@@ -625,15 +624,15 @@ export function Dashboard() {
             <div>
               <p className="text-sm text-slate-500 mb-3">
                 {form.packingType === 3
-                  ? 'Select multiple SKUs and set a target qty for this SOW (max = PO remaining).'
-                  : 'Select exactly 1 SKU and set a target qty for this SOW (max = PO remaining).'}
+                  ? 'Select products from this PO and set a target qty (max = remaining unpacked). Each box will hold only one SKU.'
+                  : 'Select one product from this PO and set a target qty (max = remaining unpacked). Each box holds only that SKU.'}
               </p>
               {poStatus === 'fulfilled' && (
                 <div className="mb-3 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-sm text-emerald-800">
                   This PO is fully fulfilled — no remaining quantity to allocate.
                 </div>
               )}
-              <div className="grid sm:grid-cols-2 gap-2 max-h-72 overflow-auto">
+              <div className="max-h-72 overflow-auto rounded-xl border divide-y bg-white">
                 {skuOptions.map((item) => {
                   const selected = form.selectedSKUs.includes(item.sku);
                   const rem = remainingForSku(item.sku);
@@ -644,28 +643,40 @@ export function Dashboard() {
                   return (
                     <div
                       key={item._id}
-                      className={`rounded-lg border px-3 py-2 text-sm ${
+                      className={`flex flex-wrap items-center gap-3 px-3 py-2.5 text-sm ${
                         selected
-                          ? 'border-amber-500 bg-amber-50'
+                          ? 'bg-amber-50'
                           : exhausted
                             ? 'opacity-50 bg-slate-50'
-                            : ''
+                            : 'hover:bg-slate-50'
                       }`}
                     >
                       <button
                         type="button"
                         disabled={exhausted || poStatus === 'fulfilled'}
                         onClick={() => toggleSku(item.sku)}
-                        className="w-full text-left disabled:cursor-not-allowed"
+                        className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-not-allowed"
                       >
-                        <div className="font-mono text-xs text-slate-500">{item.sku}</div>
-                        <div className="font-medium">{item.name}</div>
-                        {hasPoProgress && (
-                          <div className="text-xs text-slate-400 mt-0.5">Remaining {rem}</div>
-                        )}
+                        <span
+                          className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                            selected
+                              ? 'border-amber-500 bg-amber-500 text-white'
+                              : 'border-slate-300 bg-white'
+                          }`}
+                          aria-hidden
+                        >
+                          {selected ? '✓' : ''}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block font-medium truncate">{item.name}</span>
+                          <span className="block font-mono text-xs text-slate-500">
+                            {item.sku}
+                            {hasPoProgress ? ` · remaining ${rem}` : ''}
+                          </span>
+                        </span>
                       </button>
                       {selected && (
-                        <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+                        <label className="ml-auto flex shrink-0 items-center gap-2 text-xs text-slate-600">
                           Target qty
                           <input
                             type="number"
@@ -679,6 +690,7 @@ export function Dashboard() {
                                 [item.sku]: e.target.value,
                               }))
                             }
+                            onClick={(e) => e.stopPropagation()}
                           />
                           {hasPoProgress && <span className="text-slate-400">/ {rem}</span>}
                         </label>

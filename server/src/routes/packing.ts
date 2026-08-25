@@ -205,6 +205,20 @@ packingRouter.post('/scan', async (req: Request, res: Response) => {
     });
   }
 
+  // One box = one SKU (all packing types)
+  if (box.products.length > 0) {
+    const existingSku = box.products[0].sku;
+    if (existingSku && existingSku !== nextSku) {
+      return res.status(400).json({
+        code: 'MIXED_SKU_BOX',
+        message: `Box ${box.boxId} already contains ${existingSku}. One box = one SKU.`,
+        boxId: box.boxId,
+        existingSku,
+        sku: nextSku,
+      });
+    }
+  }
+
   if (sow!.packingType === 2 && sow!.selectedSKUs[0] && nextSku !== sow!.selectedSKUs[0]) {
     return res.status(400).json({ message: 'This pallet type allows only one SKU' });
   }
