@@ -8,3 +8,4 @@ release/
 coverage/
 server/dist/
 client/dist/
+.tools/

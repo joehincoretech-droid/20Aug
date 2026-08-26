@@ -83,16 +83,40 @@ export async function scannedBySkuForSow(
   return { bySku, total };
 }
 
-/** Remaining PO qty per SKU = ordered − all scans under the PO. */
+/** Sum allocated targetQty by SKU across all SOWs under a PO. */
+export async function allocatedBySkuForPo(poNumber: string): Promise<Map<string, number>> {
+  const sows = await Sow.find({ poNumber }).select('selectedSKUs targetItems');
+  const bySku = new Map<string, number>();
+  for (const sow of sows) {
+    const targets = resolveTargetItems(sow, []);
+    // Prefer stored targetItems only; if empty, fall back to summing nothing here
+    // unless we have targetItems. resolveTargetItems with empty poItems returns
+    // stored targets, or [] if none (won't inflate with full PO qty).
+    for (const t of targets) {
+      bySku.set(t.sku, (bySku.get(t.sku) || 0) + t.targetQty);
+    }
+  }
+  return bySku;
+}
+
+/**
+ * Remaining PO qty per SKU available to allocate to a new SOW
+ * = ordered − sum(targetQty of existing SOWs).
+ * Falls back to ordered − scanned when a SKU has no allocations yet but has scans.
+ */
 export async function remainingBySkuForPo(
   poNumber: string,
   items: IPoItem[] = []
 ): Promise<Map<string, number>> {
-  const scanned = await scannedBySkuForPo(poNumber);
+  const [allocated, scanned] = await Promise.all([
+    allocatedBySkuForPo(poNumber),
+    scannedBySkuForPo(poNumber),
+  ]);
   const remaining = new Map<string, number>();
   for (const item of items) {
-    const scannedQty = scanned.bySku.get(item.sku) || 0;
-    remaining.set(item.sku, Math.max(0, (item.qty || 0) - scannedQty));
+    const ordered = item.qty || 0;
+    const used = Math.max(allocated.get(item.sku) || 0, scanned.bySku.get(item.sku) || 0);
+    remaining.set(item.sku, Math.max(0, ordered - used));
   }
   return remaining;
 }
@@ -106,16 +130,21 @@ export async function buildPoProgress(
   poNumber: string,
   items: IPoItem[] = []
 ): Promise<PoProgress> {
-  const scanned = await scannedBySkuForPo(poNumber);
+  const [scanned, allocated] = await Promise.all([
+    scannedBySkuForPo(poNumber),
+    allocatedBySkuForPo(poNumber),
+  ]);
   const orderedQty = items.reduce((n, i) => n + (i.qty || 0), 0);
   const progressItems: SkuProgress[] = items.map((i) => {
     const scannedQty = scanned.bySku.get(i.sku) || 0;
+    const allocatedQty = allocated.get(i.sku) || 0;
+    const used = Math.max(allocatedQty, scannedQty);
     return {
       sku: i.sku,
       productName: i.productName,
       orderedQty: i.qty,
       scannedQty,
-      remainingQty: Math.max(0, (i.qty || 0) - scannedQty),
+      remainingQty: Math.max(0, (i.qty || 0) - used),
     };
   });
   // Include scanned SKUs not on the PO (edge case)
@@ -175,16 +204,24 @@ export async function buildSowProgress(
   scannedQty: number;
 }> {
   const targets = resolveTargetItems(sow, poItems);
-  const sowScanned = await scannedBySkuForSow(sow._id);
-  const poRemaining = await remainingBySkuForPo(sow.poNumber, poItems);
+  const [sowScanned, poScanned] = await Promise.all([
+    scannedBySkuForSow(sow._id),
+    scannedBySkuForPo(sow.poNumber),
+  ]);
 
-  const progressItems: SowSkuProgress[] = targets.map((t) => ({
-    sku: t.sku,
-    productName: t.productName,
-    orderedQty: t.targetQty,
-    scannedQty: sowScanned.bySku.get(t.sku) || 0,
-    poRemaining: poRemaining.get(t.sku) ?? 0,
-  }));
+  const progressItems: SowSkuProgress[] = targets.map((t) => {
+    const poLine = poItems.find((i) => i.sku === t.sku);
+    const poOrdered = poLine?.qty || 0;
+    const poScannedQty = poScanned.bySku.get(t.sku) || 0;
+    return {
+      sku: t.sku,
+      productName: t.productName,
+      orderedQty: t.targetQty,
+      scannedQty: sowScanned.bySku.get(t.sku) || 0,
+      // Packing view: how many are still unscanned on the PO (not unallocated)
+      poRemaining: Math.max(0, poOrdered - poScannedQty),
+    };
+  });
 
   return {
     targetItems: targets,

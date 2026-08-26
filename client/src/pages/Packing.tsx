@@ -8,7 +8,7 @@ import {
   type RefObject,
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Camera, Check, Link2, Package, Save, ScanLine, Unlink } from 'lucide-react';
+import { Camera, Check, Package, Save, ScanLine } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api, ApiError } from '../api';
 import { Modal } from '../components/Modal';
@@ -32,8 +32,10 @@ export function Packing() {
   const [scanner, setScanner] = useState<ScannerTarget | null>(null);
   const [warnUnlinked, setWarnUnlinked] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
+  /** When true, unknown products auto-use lockedSku — Associate SKU popup is skipped. */
+  const [skuLocked, setSkuLocked] = useState(false);
+  const [lockedSku, setLockedSku] = useState('');
 
-  const needsPallet = sow && sow.packingType !== 1;
   const currentBox = boxes.find((b) => b.boxId === boxId);
   const currentPallet = pallets.find((p) => p.palletId === palletId);
 
@@ -59,6 +61,10 @@ export function Packing() {
     if (box?.palletId) {
       setPalletId(box.palletId);
     }
+    const boxSku = box?.products[0]?.sku;
+    if (skuLocked && boxSku && sow?.selectedSKUs.includes(boxSku)) {
+      setLockedSku(boxSku);
+    }
     if (box && !box.completed) {
       focusProductInput();
     }
@@ -67,19 +73,21 @@ export function Packing() {
   function selectExistingPallet(id: string) {
     if (!id) return;
     setPalletId(id);
+    const activeBox = boxes.find((b) => b.boxId === boxId);
+    if (activeBox && activeBox.palletId !== id) {
+      setBoxId('');
+    }
   }
 
-  const rows = useMemo(
-    () =>
-      boxes.flatMap((box) =>
-        box.products.map((p) => ({
-          ...p,
-          boxId: box.boxId,
-          palletId: box.palletId || '—',
-        }))
-      ),
-    [boxes]
-  );
+  async function linkBoxToPallet(boxIdToLink: string, palletIdToLink?: string) {
+    const pid = (palletIdToLink || palletId).trim();
+    const bid = boxIdToLink.trim();
+    if (!pid || !bid) return;
+    await api('/api/packing/link', {
+      method: 'POST',
+      body: { sowId, boxId: bid, palletId: pid },
+    });
+  }
 
   async function ensureBox(id?: string) {
     const next = (id || boxId).trim();
@@ -92,6 +100,13 @@ export function Packing() {
       body: { sowId, boxId: next },
     });
     setBoxId(data.box.boxId);
+    if (sow && sow.packingType !== 1 && palletId.trim() && data.box.palletId !== palletId.trim()) {
+      try {
+        await linkBoxToPallet(data.box.boxId);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to link box to pallet');
+      }
+    }
     await load();
     focusProductInput();
     return data.box;
@@ -112,45 +127,78 @@ export function Packing() {
     return data.pallet;
   }
 
-  async function linkBox() {
-    try {
-      const box = await ensureBox();
-      const pallet = await ensurePallet();
-      if (!box || !pallet) return;
-      await api('/api/packing/link', {
-        method: 'POST',
-        body: { sowId, boxId: box.boxId, palletId: pallet.palletId },
-      });
-      toast.success(`Linked ${box.boxId} → ${pallet.palletId}`);
-      await load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Request failed');
-    }
+  function resolveSkuName(sku: string): string {
+    return (
+      sow?.selectedSKULabels?.find((x) => x.sku === sku)?.productName ||
+      sow?.progressItems?.find((x) => x.sku === sku)?.productName ||
+      ''
+    );
   }
 
-  async function unlinkBox(id: string) {
-    try {
-      await api('/api/packing/unlink', { method: 'POST', body: { sowId, boxId: id } });
-      await load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Request failed');
-    }
+  function applyScanLocally(updatedBox: Box, scannedSku: string) {
+    setBoxes((prev) => {
+      const idx = prev.findIndex((b) => b.boxId === updatedBox.boxId);
+      if (idx === -1) return [...prev, updatedBox];
+      const next = [...prev];
+      next[idx] = updatedBox;
+      return next;
+    });
+    setSow((prev) => {
+      if (!prev) return prev;
+      const progressItems = (prev.progressItems || []).map((item) => {
+        if (item.sku !== scannedSku) return item;
+        const scannedQty = item.scannedQty + 1;
+        return {
+          ...item,
+          scannedQty,
+          remainingQty:
+            item.remainingQty != null ? Math.max(0, item.remainingQty - 1) : undefined,
+          poRemaining: item.poRemaining != null ? Math.max(0, item.poRemaining - 1) : undefined,
+        };
+      });
+      return {
+        ...prev,
+        scannedQty: (prev.scannedQty ?? 0) + 1,
+        progressItems,
+      };
+    });
   }
 
   async function scanProduct(rawId?: string, extra: Record<string, unknown> = {}) {
     const pid = (rawId || productId).trim();
     if (!pid) return;
+
+    // Send locked SKU on the first request so unknown IDs skip the fail-retry loop
+    let bodyExtra = { ...extra };
+    if (skuLocked && lockedSku && !bodyExtra.sku) {
+      const productName = resolveSkuName(lockedSku);
+      if (!productName) {
+        toast.error(`No product name for locked SKU ${lockedSku}`);
+        return;
+      }
+      bodyExtra = { ...bodyExtra, sku: lockedSku, productName };
+    }
+
     try {
       let box = currentBox;
       if (!box) box = (await ensureBox()) ?? undefined;
       if (!box) return;
-      await api('/api/packing/scan', {
-        method: 'POST',
-        body: { sowId, boxId: box.boxId, productId: pid, ...extra },
-      });
+
+      // Free the input immediately so the next barcode can be entered while the request runs
       setProductId('');
       setUnknown(null);
-      await load();
+      focusProductInput();
+
+      const data = await api<{ box: Box; product: { sku: string; productId: string; productName: string } }>(
+        '/api/packing/scan',
+        {
+          method: 'POST',
+          body: { sowId, boxId: box.boxId, productId: pid, ...bodyExtra },
+        }
+      );
+
+      applyScanLocally(data.box, data.product.sku);
+      focusProductInput();
     } catch (err) {
       if (err instanceof ApiError && err.data?.code === 'DUPLICATE_PRODUCT') {
         toast.error(`${err.data.productId} have been store in ${err.data.boxId}`, { duration: 3000 });
@@ -170,6 +218,7 @@ export function Packing() {
         toast.error(err instanceof Error ? err.message : 'Request failed');
       }
       setProductId('');
+      focusProductInput();
     }
   }
 
@@ -239,6 +288,33 @@ export function Packing() {
     }
   }
 
+  const rows = useMemo(() => {
+    const boxOnlyMode = sow?.packingType === 1;
+    const isPalletMode = sow?.packingType === 2 || sow?.packingType === 3;
+    const source = boxId
+      ? boxes.filter((b) => b.boxId === boxId)
+      : boxOnlyMode || isPalletMode
+        ? []
+        : boxes;
+    return source.flatMap((box) =>
+      box.products.map((p) => ({
+        ...p,
+        boxId: box.boxId,
+        palletId: box.palletId || '—',
+      }))
+    );
+  }, [boxes, boxId, sow?.packingType]);
+
+  const allProductCount = useMemo(
+    () => boxes.reduce((n, b) => n + b.products.length, 0),
+    [boxes]
+  );
+
+  const boxesOnPallet = useMemo(
+    () => (palletId ? boxes.filter((b) => b.palletId === palletId) : []),
+    [boxes, palletId]
+  );
+
   if (!sow) {
     return <div className="p-8 text-slate-500">Loading packing job…</div>;
   }
@@ -246,11 +322,12 @@ export function Packing() {
   const readOnly = sow.status === 'completed';
   const boxFill = currentBox?.products.length || 0;
   const palletFill = currentPallet?.boxes.length || 0;
-  const totalPacked = rows.length;
+  const totalPacked = allProductCount;
+  const boxOnly = sow.packingType === 1;
+  const palletMode = sow.packingType === 2 || sow.packingType === 3;
 
   const hasBox = Boolean(currentBox);
   const hasPallet = Boolean(currentPallet);
-  const boxLinked = Boolean(currentBox?.palletId);
 
   const progressItems = sow.progressItems || [];
   const sowTargetsMet =
@@ -260,12 +337,17 @@ export function Packing() {
     (item) => item.orderedQty > 0 && item.scannedQty >= item.orderedQty
   );
 
-  type NextStep = 'box' | 'pallet' | 'link' | 'scan';
+  type NextStep = 'box' | 'pallet' | 'scan';
   let nextStep: NextStep = 'scan';
-  if (!hasBox) nextStep = 'box';
-  else if (needsPallet && !hasPallet) nextStep = 'pallet';
-  else if (needsPallet && hasPallet && !boxLinked) nextStep = 'link';
-  else nextStep = 'scan';
+  if (palletMode) {
+    if (!hasPallet) nextStep = 'pallet';
+    else if (!hasBox) nextStep = 'box';
+    else nextStep = 'scan';
+  } else if (!hasBox) {
+    nextStep = 'box';
+  } else {
+    nextStep = 'scan';
+  }
 
   const nextStepBanner = (() => {
     if (readOnly) {
@@ -285,19 +367,17 @@ export function Packing() {
       };
     }
     if (nextStep === 'box') {
-      return { tone: 'blocked' as const, text: 'Step 1 — Scan or enter a Box ID to start' };
+      return {
+        tone: 'blocked' as const,
+        text: palletMode
+          ? `Scan or enter a Box ID for pallet ${palletId}`
+          : 'Step 1 — Scan or enter a Box ID to start',
+      };
     }
     if (nextStep === 'pallet') {
-      return { tone: 'blocked' as const, text: 'Step 2 — Scan or enter a Pallet ID' };
+      return { tone: 'blocked' as const, text: 'Scan or enter a Pallet ID to start' };
     }
-    if (nextStep === 'link') {
-      return { tone: 'blocked' as const, text: 'Step 3 — Link this box to the pallet' };
-    }
-    const palletPart = currentBox?.palletId
-      ? ` · Pallet ${currentBox.palletId}`
-      : needsPallet
-        ? ' · unlinked'
-        : '';
+    const palletPart = palletMode && palletId ? ` · Pallet ${palletId}` : '';
     return {
       tone: 'ready' as const,
       text: `Scanning into ${currentBox!.boxId}${palletPart} · capacity ${boxFill}/30`,
@@ -305,9 +385,12 @@ export function Packing() {
   })();
 
   const scanDisabled =
-    readOnly || !hasBox || Boolean(currentBox?.completed) || sowTargetsMet;
+    readOnly ||
+    !hasBox ||
+    Boolean(currentBox?.completed) ||
+    sowTargetsMet ||
+    (palletMode && (!hasPallet || currentBox?.palletId !== palletId));
 
-  const boxSku = currentBox?.products[0]?.sku || null;
   const canCompleteBox =
     !readOnly &&
     Boolean(currentBox) &&
@@ -374,57 +457,36 @@ export function Packing() {
             <div className="text-xs font-medium uppercase tracking-wide text-slate-400 mb-2">
               SOW target progress
             </div>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {sow.progressItems.map((item) => (
-                <div
-                  key={item.sku}
-                  className="rounded-lg border bg-slate-50 px-3 py-2 text-sm flex items-center justify-between gap-2"
-                >
-                  <div className="min-w-0">
-                    <div className="font-medium truncate">{item.productName}</div>
-                    <div className="font-mono text-[11px] text-slate-400">{item.sku}</div>
-                    {item.poRemaining != null && (
-                      <div className="text-[11px] text-slate-400 mt-0.5">
-                        PO remaining {item.poRemaining}
-                      </div>
-                    )}
-                  </div>
-                  <div
-                    className={`font-mono text-sm font-semibold shrink-0 ${
-                      item.scannedQty >= item.orderedQty && item.orderedQty > 0
-                        ? 'text-emerald-700'
-                        : 'text-amber-700'
-                    }`}
+            <ul className="max-h-40 overflow-auto rounded-xl border divide-y bg-slate-50">
+              {sow.progressItems.map((item) => {
+                const done = item.orderedQty > 0 && item.scannedQty >= item.orderedQty;
+                return (
+                  <li
+                    key={item.sku}
+                    className="flex items-center justify-between gap-3 px-3 py-1.5 text-sm"
                   >
-                    {item.scannedQty}/{item.orderedQty}
-                  </div>
-                </div>
-              ))}
-            </div>
+                    <div className="min-w-0 flex items-baseline gap-2 truncate">
+                      <span className="font-medium truncate">{item.productName}</span>
+                      <span className="font-mono text-[11px] text-slate-400 shrink-0">{item.sku}</span>
+                      {item.poRemaining != null && (
+                        <span className="text-[11px] text-slate-400 shrink-0">
+                          · PO left {item.poRemaining}
+                        </span>
+                      )}
+                    </div>
+                    <span
+                      className={`font-mono text-sm font-semibold shrink-0 ${
+                        done ? 'text-emerald-700' : 'text-amber-700'
+                      }`}
+                    >
+                      {item.scannedQty}/{item.orderedQty}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         )}
-        <div className="mt-4 pt-4 border-t">
-          <div className="text-xs font-medium uppercase tracking-wide text-slate-400 mb-2">
-            Selected SKU / Product Name
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {(sow.selectedSKULabels || []).map((item) => (
-              <span
-                key={item.sku}
-                className="inline-flex items-center gap-2 rounded-lg bg-slate-50 border px-3 py-1.5 text-sm"
-              >
-                <span className="font-mono text-xs text-slate-500">{item.sku}</span>
-                <span className="font-medium">{item.productName}</span>
-              </span>
-            ))}
-            {!sow.selectedSKULabels?.length &&
-              sow.selectedSKUs.map((sku) => (
-                <span key={sku} className="font-mono text-sm rounded-lg bg-slate-50 border px-3 py-1.5">
-                  {sku}
-                </span>
-              ))}
-          </div>
-        </div>
       </div>
 
       <div
@@ -437,181 +499,331 @@ export function Packing() {
         {nextStepBanner.text}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <section className="lg:col-span-1 bg-slate-50 rounded-2xl border border-slate-200 p-4 space-y-4">
-          <div>
-            <h3 className="font-semibold text-slate-800">Container setup</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Box first{needsPallet ? ', then pallet & link' : ''}.</p>
-          </div>
-
-          <ContainerField
-            step={1}
-            active={nextStep === 'box'}
-            title="Box ID"
-            value={boxId}
-            onChange={setBoxId}
-            onCommit={() => ensureBox().catch((e: Error) => toast.error(e.message))}
-            onScan={() => setScanner('box')}
-            meter={`${boxFill}/30`}
-            fill={boxFill / 30}
-            disabled={readOnly}
-          />
-
-          {boxes.length > 0 && (
-            <label className="block text-xs text-slate-500">
-              Select existing box
-              <select
-                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 font-mono text-sm text-slate-900"
-                value={boxes.some((b) => b.boxId === boxId) ? boxId : ''}
-                disabled={readOnly}
-                onChange={(e) => selectExistingBox(e.target.value)}
-              >
-                <option value="">Choose a previous box…</option>
-                {boxes.map((b) => (
-                  <option key={b.boxId} value={b.boxId}>
-                    {b.boxId} ({b.products.length}/30)
-                    {b.completed ? ' · done' : ''}
-                    {b.palletId ? ` · → ${b.palletId}` : ' · unlinked'}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-
-          <button
-            disabled={!canCompleteBox}
-            onClick={completeBox}
-            className={`w-full rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${
-              canCompleteBox
-                ? 'border-2 border-emerald-500 bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
-                : 'border border-slate-300 bg-white hover:bg-slate-100'
-            }`}
-          >
-            Complete Box
-            {canCompleteBox && boxFill >= 30
-              ? ' · full'
-              : canCompleteBox && sowTargetsMet
-                ? ' · SOW done'
-                : ''}
-          </button>
-
-          {needsPallet && (
+      <div className="grid gap-4 lg:grid-cols-[minmax(280px,340px)_1fr]">
+        <section className="bg-slate-50 rounded-2xl border border-slate-200 p-4 space-y-4">
+          {boxOnly ? (
             <>
+              <div>
+                <h3 className="font-semibold text-slate-800">Box scanning</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Scan or enter a Box ID. Select a box below to pack and view its products.
+                </p>
+              </div>
+
               <ContainerField
-                step={2}
+                step={1}
+                active={nextStep === 'box'}
+                title="Box ID"
+                value={boxId}
+                onChange={setBoxId}
+                onCommit={() => ensureBox().catch((e: Error) => toast.error(e.message))}
+                onScan={() => setScanner('box')}
+                meter={currentBox ? `${boxFill}/30` : '—/30'}
+                fill={currentBox ? boxFill / 30 : 0}
+                disabled={readOnly}
+              />
+
+              {boxes.length > 0 && (
+                <div>
+                  <div className="text-xs font-medium text-slate-500 mb-1.5">Boxes on this SOW</div>
+                  <ul className="max-h-48 overflow-auto rounded-xl border bg-white divide-y">
+                    {boxes.map((b) => {
+                      const active = b.boxId === boxId;
+                      const fill = b.products.length;
+                      return (
+                        <li key={b.boxId}>
+                          <button
+                            type="button"
+                            disabled={readOnly}
+                            onClick={() => selectExistingBox(b.boxId)}
+                            className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left text-sm font-mono ${
+                              active
+                                ? 'bg-amber-50 text-amber-950 ring-inset ring-2 ring-amber-400'
+                                : 'hover:bg-slate-50 text-slate-800'
+                            } disabled:opacity-50`}
+                          >
+                            <span className="font-semibold truncate">
+                              {b.boxId}
+                              <span className="font-normal text-slate-500"> ({fill}/30)</span>
+                            </span>
+                            {b.completed && (
+                              <span className="shrink-0 rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[10px] font-sans font-medium">
+                                done
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+
+              <button
+                disabled={!canCompleteBox}
+                onClick={completeBox}
+                className={`w-full rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${
+                  canCompleteBox
+                    ? 'border-2 border-emerald-500 bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
+                    : 'border border-slate-300 bg-white hover:bg-slate-100'
+                }`}
+              >
+                Complete Box
+                {canCompleteBox && boxFill >= 30
+                  ? ' · full'
+                  : canCompleteBox && sowTargetsMet
+                    ? ' · SOW done'
+                    : ''}
+              </button>
+            </>
+          ) : (
+            <>
+              <div>
+                <h3 className="font-semibold text-slate-800">Pallet scanning</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Scan a pallet, then scan boxes onto it. Select a box to pack and view its products.
+                </p>
+              </div>
+
+              <ContainerField
+                step={1}
                 active={nextStep === 'pallet'}
                 title="Pallet ID"
                 value={palletId}
                 onChange={setPalletId}
                 onCommit={() => ensurePallet().catch((e: Error) => toast.error(e.message))}
                 onScan={() => setScanner('pallet')}
-                meter={`${palletFill}/50`}
-                fill={palletFill / 50}
+                meter={hasPallet ? `${palletFill}/50` : '—/50'}
+                fill={hasPallet ? palletFill / 50 : 0}
                 disabled={readOnly}
               />
 
               {pallets.length > 0 && (
-                <label className="block text-xs text-slate-500">
-                  Select existing pallet
-                  <select
-                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 font-mono text-sm text-slate-900"
-                    value={pallets.some((p) => p.palletId === palletId) ? palletId : ''}
-                    disabled={readOnly}
-                    onChange={(e) => selectExistingPallet(e.target.value)}
-                  >
-                    <option value="">Choose a previous pallet…</option>
-                    {pallets.map((p) => (
-                      <option key={p.palletId} value={p.palletId}>
-                        {p.palletId} ({p.boxes.length}/50 boxes)
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <div>
+                  <div className="text-xs font-medium text-slate-500 mb-1.5">Pallets on this SOW</div>
+                  <ul className="max-h-36 overflow-auto rounded-xl border bg-white divide-y">
+                    {pallets.map((p) => {
+                      const active = p.palletId === palletId;
+                      return (
+                        <li key={p.palletId}>
+                          <button
+                            type="button"
+                            disabled={readOnly}
+                            onClick={() => selectExistingPallet(p.palletId)}
+                            className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left text-sm font-mono ${
+                              active
+                                ? 'bg-amber-50 text-amber-950 ring-inset ring-2 ring-amber-400'
+                                : 'hover:bg-slate-50 text-slate-800'
+                            } disabled:opacity-50`}
+                          >
+                            <span className="font-semibold truncate">
+                              {p.palletId}
+                              <span className="font-normal text-slate-500">
+                                {' '}
+                                ({p.boxes.length}/50)
+                              </span>
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
               )}
 
-              <div className="flex flex-wrap items-center gap-2">
-                {currentBox?.palletId ? (
-                  <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-1 text-xs font-medium font-mono">
-                    Linked → {currentBox.palletId}
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-900 px-2.5 py-1 text-xs font-medium">
-                    Unlinked
-                  </span>
-                )}
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  disabled={readOnly || nextStep === 'box'}
-                  onClick={linkBox}
-                  className={`inline-flex flex-1 items-center justify-center gap-1 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${
-                    nextStep === 'link'
-                      ? 'bg-amber-500 text-slate-950 ring-2 ring-amber-200'
-                      : 'bg-slate-950 text-white'
-                  }`}
-                >
-                  <Link2 size={14} /> Link Box
-                </button>
-                {currentBox?.palletId && (
-                  <button
+              {hasPallet && (
+                <>
+                  <ContainerField
+                    step={2}
+                    active={nextStep === 'box'}
+                    title="Box ID"
+                    value={boxId}
+                    onChange={setBoxId}
+                    onCommit={() => ensureBox().catch((e: Error) => toast.error(e.message))}
+                    onScan={() => setScanner('box')}
+                    meter={currentBox ? `${boxFill}/30` : '—/30'}
+                    fill={currentBox ? boxFill / 30 : 0}
                     disabled={readOnly}
-                    className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-                    onClick={() => unlinkBox(currentBox.boxId)}
+                  />
+
+                  <div>
+                    <div className="text-xs font-medium text-slate-500 mb-1.5">
+                      Boxes on {palletId}
+                    </div>
+                    <ul className="max-h-48 overflow-auto rounded-xl border bg-white divide-y">
+                        {boxesOnPallet.map((b) => {
+                          const active = b.boxId === boxId;
+                          const fill = b.products.length;
+                          return (
+                            <li key={b.boxId}>
+                              <button
+                                type="button"
+                                disabled={readOnly}
+                                onClick={() => selectExistingBox(b.boxId)}
+                                className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left text-sm font-mono ${
+                                  active
+                                    ? 'bg-amber-50 text-amber-950 ring-inset ring-2 ring-amber-400'
+                                    : 'hover:bg-slate-50 text-slate-800'
+                                } disabled:opacity-50`}
+                              >
+                                <span className="font-semibold truncate">
+                                  {b.boxId}
+                                  <span className="font-normal text-slate-500"> ({fill}/30)</span>
+                                </span>
+                                {b.completed && (
+                                  <span className="shrink-0 rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[10px] font-sans font-medium">
+                                    done
+                                  </span>
+                                )}
+                              </button>
+                            </li>
+                          );
+                        })}
+                        {boxesOnPallet.length === 0 && (
+                          <li className="px-3 py-4 text-center text-xs text-slate-400">
+                            No boxes on this pallet yet — scan a Box ID above.
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+
+                  <button
+                    disabled={!canCompleteBox}
+                    onClick={completeBox}
+                    className={`w-full rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${
+                      canCompleteBox
+                        ? 'border-2 border-emerald-500 bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
+                        : 'border border-slate-300 bg-white hover:bg-slate-100'
+                    }`}
                   >
-                    <Unlink size={14} /> Unlink
+                    Complete Box
+                    {canCompleteBox && boxFill >= 30
+                      ? ' · full'
+                      : canCompleteBox && sowTargetsMet
+                        ? ' · SOW done'
+                        : ''}
                   </button>
-                )}
-              </div>
+                </>
+              )}
             </>
           )}
         </section>
 
-        <ProductScanPanel
-          step={needsPallet ? 3 : 2}
-          active={nextStep === 'scan' && !currentBox?.completed && !sowTargetsMet}
-          value={productId}
-          onChange={setProductId}
-          onCommit={() => scanProduct()}
-          onScan={() => setScanner('product')}
-          inputRef={productInput}
-          disabled={scanDisabled}
-          destination={
-            currentBox
-              ? {
-                  boxId: currentBox.boxId,
-                  palletId: currentBox.palletId,
-                  capacity: `${boxFill}/30`,
-                  sku: boxSku,
-                  needsPallet: Boolean(needsPallet),
-                }
-              : null
-          }
-          needsBox={!hasBox}
-          boxCompleted={Boolean(currentBox?.completed)}
-          targetsMet={sowTargetsMet}
-        />
-      </div>
+        <div
+          className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${
+            nextStep === 'scan' && !currentBox?.completed && !sowTargetsMet
+              ? 'ring-2 ring-amber-100 border-amber-300'
+              : ''
+          }`}
+        >
+          <div className="px-4 py-3 border-b space-y-3">
+            <div className="font-medium flex flex-wrap items-center gap-2">
+              <Package size={16} /> Product table
+              {currentBox ? (
+                <span className="text-sm font-normal text-slate-500 font-mono">
+                  {palletMode && palletId ? `· ${palletId} · ` : '· '}
+                  {currentBox.boxId} ({boxFill}/30)
+                </span>
+              ) : palletMode && hasPallet ? (
+                <span className="text-sm font-normal text-slate-400">
+                  · select a box on {palletId}
+                </span>
+              ) : boxes.length > 0 || (palletMode && pallets.length > 0) ? (
+                <span className="text-sm font-normal text-slate-400">
+                  · {palletMode ? 'select a pallet, then a box' : 'select a box to filter'}
+                </span>
+              ) : null}
+            </div>
 
-      <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b font-medium flex items-center gap-2">
-          <Package size={16} /> Product table
-        </div>
-        <table className="w-full text-sm">
+            <ProductScanBar
+              step={palletMode ? 3 : 2}
+              active={nextStep === 'scan' && !currentBox?.completed && !sowTargetsMet}
+              value={productId}
+              onChange={setProductId}
+              onCommit={() => scanProduct()}
+              onScan={() => setScanner('product')}
+              inputRef={productInput}
+              disabled={scanDisabled}
+              needsBox={!hasBox}
+              boxCompleted={Boolean(currentBox?.completed)}
+              targetsMet={sowTargetsMet}
+            />
+
+            <label
+              className={`flex flex-wrap items-center gap-2 text-sm ${
+                readOnly ? 'opacity-50' : ''
+              }`}
+            >
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
+                checked={skuLocked}
+                disabled={readOnly || sow.selectedSKUs.length === 0}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  setSkuLocked(on);
+                  if (on) {
+                    const boxSku = currentBox?.products[0]?.sku;
+                    const next =
+                      (boxSku && sow.selectedSKUs.includes(boxSku) && boxSku) ||
+                      lockedSku ||
+                      sow.selectedSKUs[0] ||
+                      '';
+                    setLockedSku(next);
+                    setUnknown(null);
+                  }
+                }}
+              />
+              <span className="font-medium text-slate-700">Lock SKU for continuous scan</span>
+              {skuLocked ? (
+                <select
+                  className="rounded-lg border bg-white px-2 py-1 font-mono text-xs max-w-full"
+                  value={lockedSku}
+                  disabled={readOnly}
+                  onChange={(e) => setLockedSku(e.target.value)}
+                >
+                  {sow.selectedSKUs.map((sku) => {
+                    const name =
+                      sow.selectedSKULabels?.find((x) => x.sku === sku)?.productName || sku;
+                    return (
+                      <option key={sku} value={sku}>
+                        {sku} · {name}
+                      </option>
+                    );
+                  })}
+                </select>
+              ) : (
+                <span className="text-xs text-slate-400">
+                  Off — unknown products will ask to associate SKU
+                </span>
+              )}
+            </label>
+          </div>
+          <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-slate-500">
             <tr>
               <th className="px-4 py-2 font-medium">SKU</th>
               <th className="px-4 py-2 font-medium">Product ID</th>
               <th className="px-4 py-2 font-medium">Product Name</th>
               <th className="px-4 py-2 font-medium">BOX ID</th>
-              <th className="px-4 py-2 font-medium">Pallet ID</th>
+              {!boxOnly && <th className="px-4 py-2 font-medium">Pallet ID</th>}
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
-                  Scan products to fill this table.
+                <td colSpan={boxOnly ? 4 : 5} className="px-4 py-8 text-center text-slate-400">
+                  {palletMode && !hasPallet
+                    ? 'Scan a Pallet ID first.'
+                    : boxId && !currentBox
+                      ? 'Scan or create this Box ID first.'
+                      : currentBox
+                        ? 'No products in this box yet. Scan products to fill it.'
+                        : palletMode
+                          ? `Select a box on ${palletId} to view products.`
+                          : boxes.length
+                            ? 'Select a box above to view its products.'
+                            : 'Scan a Box ID, then scan products.'}
                 </td>
               </tr>
             )}
@@ -621,11 +833,12 @@ export function Packing() {
                 <td className="px-4 py-2 font-mono">{row.productId}</td>
                 <td className="px-4 py-2">{row.productName}</td>
                 <td className="px-4 py-2 font-mono">{row.boxId}</td>
-                <td className="px-4 py-2 font-mono">{row.palletId}</td>
+                {!boxOnly && <td className="px-4 py-2 font-mono">{row.palletId}</td>}
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {scanner && <QrScanner onResult={onScan} onClose={() => setScanner(null)} />}
@@ -772,7 +985,7 @@ function ContainerField({
   );
 }
 
-function ProductScanPanel({
+function ProductScanBar({
   step,
   active,
   value,
@@ -781,7 +994,6 @@ function ProductScanPanel({
   onScan,
   inputRef,
   disabled,
-  destination,
   needsBox,
   boxCompleted,
   targetsMet,
@@ -794,121 +1006,60 @@ function ProductScanPanel({
   onScan: () => void;
   inputRef: RefObject<HTMLInputElement>;
   disabled?: boolean;
-  destination: {
-    boxId: string;
-    palletId?: string | null;
-    capacity: string;
-    sku?: string | null;
-    needsPallet?: boolean;
-  } | null;
   needsBox: boolean;
   boxCompleted?: boolean;
   targetsMet?: boolean;
 }) {
+  const placeholder = needsBox
+    ? 'Set a Box ID first…'
+    : targetsMet
+      ? 'SOW targets met'
+      : boxCompleted
+        ? 'This box is completed'
+        : 'Scan or type Product ID';
+
   return (
-    <section
-      className={`lg:col-span-2 rounded-2xl border bg-white p-5 shadow-sm ${
-        active ? 'border-amber-400 ring-2 ring-amber-100' : 'border-slate-200'
-      }`}
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <StepBadge step={step} active={active} />
-          <div>
-            <h3 className="font-semibold text-lg text-slate-900">Product scanning</h3>
-            <p className="text-xs text-slate-500">Continuous barcode scan or type, then Enter</p>
-          </div>
-        </div>
-        {destination && (
-          <div className="text-xs font-mono text-slate-500">({destination.capacity})</div>
-        )}
-      </div>
-
-      <div className="mt-4 flex gap-2">
-        <input
-          ref={inputRef}
-          disabled={disabled}
-          className={`flex-1 rounded-xl border-2 px-4 py-3.5 font-mono text-lg ${
-            active && !disabled
-              ? 'border-amber-400 scan-pulse focus:ring-2 focus:ring-amber-200'
-              : 'border-slate-200'
-          } disabled:bg-slate-50 disabled:text-slate-400`}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              onCommit();
-            }
-          }}
-          placeholder={
-            needsBox
-              ? 'Set a Box ID first…'
-              : targetsMet
-                ? 'SOW targets met'
-                : boxCompleted
-                  ? 'This box is completed'
-                  : 'Scan or type Product ID'
+    <div className="flex flex-wrap items-center gap-2">
+      <StepBadge step={step} active={active} />
+      <span className="text-xs font-medium text-slate-500 shrink-0">Product scan</span>
+      <input
+        ref={inputRef}
+        disabled={disabled}
+        className={`min-w-[12rem] flex-1 rounded-lg border px-3 py-2 font-mono text-sm ${
+          active && !disabled
+            ? 'border-amber-400 scan-pulse focus:ring-2 focus:ring-amber-200'
+            : 'border-slate-200'
+        } disabled:bg-slate-50 disabled:text-slate-400`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            onCommit();
           }
-          autoComplete="off"
-        />
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={onScan}
-          className="rounded-xl border px-4 hover:bg-slate-50 disabled:opacity-50"
-          title="Open camera"
-        >
-          <Camera size={22} />
-        </button>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={onCommit}
-          className="rounded-xl bg-amber-500 px-4 text-slate-950 font-semibold disabled:opacity-50"
-        >
-          <ScanLine size={22} />
-        </button>
-      </div>
-
-      <div className="mt-3">
-        {needsBox ? (
-          <p className="text-sm text-amber-700">Set a Box ID in Container setup before scanning products.</p>
-        ) : targetsMet ? (
-          <p className="text-sm text-emerald-700">
-            All SOW targets are met. Complete any open box and press Finish / Confirm.
-          </p>
-        ) : boxCompleted ? (
-          <p className="text-sm text-amber-700">
-            Box <span className="font-mono font-semibold">{destination?.boxId}</span> is completed.
-            Select or create another box to continue scanning.
-          </p>
-        ) : destination ? (
-          <p className="text-sm text-slate-600">
-            Packing into{' '}
-            <span className="font-mono font-semibold text-slate-900">{destination.boxId}</span>
-            {destination.sku ? (
-              <>
-                {' '}
-                · SKU <span className="font-mono font-semibold">{destination.sku}</span> only
-              </>
-            ) : (
-              <span className="text-slate-500"> · empty box (first scan sets SKU)</span>
-            )}
-            {destination.needsPallet ? (
-              destination.palletId ? (
-                <>
-                  {' '}
-                  · pallet <span className="font-mono font-semibold">{destination.palletId}</span>
-                </>
-              ) : (
-                <span className="text-amber-700"> · unlinked</span>
-              )
-            ) : null}
-          </p>
-        ) : null}
-      </div>
-    </section>
+        }}
+        placeholder={placeholder}
+        autoComplete="off"
+      />
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onScan}
+        className="rounded-lg border px-2.5 py-2 hover:bg-slate-50 disabled:opacity-50"
+        title="Open camera"
+      >
+        <Camera size={16} />
+      </button>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onCommit}
+        className="rounded-lg bg-amber-500 px-2.5 py-2 text-slate-950 disabled:opacity-50"
+        title="Scan product"
+      >
+        <ScanLine size={16} />
+      </button>
+    </div>
   );
 }
 

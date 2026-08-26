@@ -219,7 +219,7 @@ export function Dashboard() {
           return false;
         }
         if (qty > rem) {
-          toast.error(`Target for ${sku} exceeds remaining (${rem})`);
+          toast.error(`Target for ${sku} exceeds left to allocate (${rem})`);
           return false;
         }
       }
@@ -313,8 +313,8 @@ export function Dashboard() {
   }, [sows, search, statusFilter, sortKey, sortDir, nameBySku]);
 
   return (
-    <div className="p-8">
-      <div className="flex items-end justify-between gap-4">
+    <div className="p-4 md:p-8">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">SOW Dashboard</h1>
           <p className="text-slate-500 mt-1">Create a statement of work and start packing.</p>
@@ -331,8 +331,8 @@ export function Dashboard() {
       </div>
 
       {/* Filter / search bar */}
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-48">
+      <div className="mt-6 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3">
+        <div className="relative flex-1 min-w-0 sm:min-w-48">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           <input
             className="w-full rounded-lg border bg-white pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
@@ -349,7 +349,7 @@ export function Dashboard() {
             </button>
           )}
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5 -mx-1 px-1">
           {(['all', 'packing', 'draft', 'completed'] as const).map((s) => (
             <button
               key={s}
@@ -370,13 +370,14 @@ export function Dashboard() {
             </button>
           ))}
         </div>
-        <div className="text-xs text-slate-400 ml-auto">
+        <div className="text-xs text-slate-400 sm:ml-auto shrink-0">
           {rows.length} / {sows.length} rows
         </div>
       </div>
 
       <div className="mt-3 bg-white rounded-2xl border shadow-sm overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-slate-50 text-left text-slate-500">
             <tr>
               {(
@@ -444,11 +445,11 @@ export function Dashboard() {
                 className="border-t hover:bg-amber-50/50 cursor-pointer"
                 onClick={() => navigate(`/pack/${sow._id}`)}
               >
-                <td className="px-4 py-3 font-medium font-mono">{sow.sowNumber}</td>
-                <td className="px-4 py-3">{sow.batchNo}</td>
-                <td className="px-4 py-3 font-mono">{sow.poNumber}</td>
-                <td className="px-4 py-3">{sow.clientCode}</td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 font-medium font-mono whitespace-nowrap">{sow.sowNumber}</td>
+                <td className="px-4 py-3 whitespace-nowrap">{sow.batchNo}</td>
+                <td className="px-4 py-3 font-mono whitespace-nowrap">{sow.poNumber}</td>
+                <td className="px-4 py-3 whitespace-nowrap">{sow.clientCode}</td>
+                <td className="px-4 py-3 min-w-[12rem]">
                   {(sow.selectedSKULabels || sow.selectedSKUs.map((sku) => ({
                     sku,
                     productName: nameBySku[sku] || sku,
@@ -460,7 +461,7 @@ export function Dashboard() {
                     </div>
                   ))}
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 whitespace-nowrap">
                   <div className="font-medium">
                     {sow.scannedQty ?? sow.totalAmount ?? 0}
                     {sow.orderedQty != null ? ` / ${sow.orderedQty}` : ''}
@@ -481,7 +482,7 @@ export function Dashboard() {
                     </div>
                   )}
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 whitespace-nowrap">
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                       sow.status === 'completed'
@@ -498,6 +499,7 @@ export function Dashboard() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {open && (
@@ -624,8 +626,8 @@ export function Dashboard() {
             <div>
               <p className="text-sm text-slate-500 mb-3">
                 {form.packingType === 3
-                  ? 'Select products from this PO and set a target qty (max = remaining unpacked). Each box will hold only one SKU.'
-                  : 'Select one product from this PO and set a target qty (max = remaining unpacked). Each box holds only that SKU.'}
+                  ? 'Select products from this PO and set a target qty (max = remaining unallocated on the PO). Each box will hold only one SKU.'
+                  : 'Select one product from this PO and set a target qty (max = remaining unallocated on the PO). Each box holds only that SKU.'}
               </p>
               {poStatus === 'fulfilled' && (
                 <div className="mb-3 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-sm text-emerald-800">
@@ -671,7 +673,7 @@ export function Dashboard() {
                           <span className="block font-medium truncate">{item.name}</span>
                           <span className="block font-mono text-xs text-slate-500">
                             {item.sku}
-                            {hasPoProgress ? ` · remaining ${rem}` : ''}
+                            {hasPoProgress ? ` · left to allocate ${rem}` : ''}
                           </span>
                         </span>
                       </button>

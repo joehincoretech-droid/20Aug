@@ -74,7 +74,7 @@ export function PurchaseOrders() {
   async function startCreateSow() {
     if (!detail) return;
     if (detail.status === 'fulfilled' || (detail.remainingQty ?? 0) <= 0) {
-      toast.error('This PO is fully fulfilled — no remaining quantity');
+      toast.error('No remaining quantity to allocate on this PO');
       return;
     }
     setBatchNo('');
@@ -159,7 +159,7 @@ export function PurchaseOrders() {
         return;
       }
       if (t.targetQty > t.rem) {
-        toast.error(`Target for ${t.sku} exceeds remaining (${t.rem})`);
+          toast.error(`Target for ${t.sku} exceeds left to allocate (${t.rem})`);
         return;
       }
     }
@@ -271,7 +271,7 @@ export function PurchaseOrders() {
               const scanned = order.scannedQty ?? 0;
               const remaining = order.remainingQty ?? Math.max(0, ordered - scanned);
               const pct = ordered > 0 ? Math.min(100, Math.round((scanned / ordered) * 100)) : 0;
-              const fulfilled = order.status === 'fulfilled' || (ordered > 0 && remaining <= 0);
+              const fulfilled = order.status === 'fulfilled';
               return (
                 <tr
                   key={order._id}
@@ -288,7 +288,7 @@ export function PurchaseOrders() {
                         <span className="ml-1 text-[11px] font-medium text-emerald-700">fulfilled</span>
                       ) : (
                         <span className="ml-1 text-[11px] font-normal text-slate-400">
-                          · {remaining} left
+                          · {remaining} left to allocate
                         </span>
                       )}
                     </div>
@@ -341,7 +341,7 @@ export function PurchaseOrders() {
                     <th className="px-3 py-2 font-medium">Product</th>
                     <th className="px-3 py-2 font-medium">Ordered</th>
                     <th className="px-3 py-2 font-medium">Scanned</th>
-                    <th className="px-3 py-2 font-medium">Remaining</th>
+                    <th className="px-3 py-2 font-medium">Left to allocate</th>
                     <th className="px-3 py-2 font-medium">Status</th>
                   </tr>
                 </thead>
@@ -399,7 +399,7 @@ export function PurchaseOrders() {
                 onClick={startCreateSow}
                 title={
                   detail.status === 'fulfilled' || (detail.remainingQty ?? 0) <= 0
-                    ? 'PO is fully fulfilled'
+                    ? 'No quantity left to allocate'
                     : undefined
                 }
               >
@@ -510,8 +510,8 @@ export function PurchaseOrders() {
             <div>
               <div className="text-sm font-medium mb-2">
                 {packingType === 3
-                  ? 'Select products from this PO & target qty (each box = one SKU)'
-                  : 'Select product from this PO & target qty (each box = one SKU)'}
+                  ? 'Select products & target qty (max = left to allocate; each box = one SKU)'
+                  : 'Select product & target qty (max = left to allocate; each box = one SKU)'}
               </div>
               <div className="max-h-56 overflow-auto rounded-xl border divide-y bg-white">
                 {(detail.items || []).map((item) => {
@@ -548,7 +548,7 @@ export function PurchaseOrders() {
                         <span className="min-w-0">
                           <span className="block font-medium truncate">{item.productName}</span>
                           <span className="block font-mono text-xs text-slate-500">
-                            {item.sku} · ordered {item.qty} · remaining {rem}
+                            {item.sku} · ordered {item.qty} · left to allocate {rem}
                           </span>
                         </span>
                       </button>
