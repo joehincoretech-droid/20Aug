@@ -16,10 +16,10 @@ import { Modal } from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import type { ProductName, PurchaseOrder, Sow } from '../types';
 
-const TYPES: Array<{ id: 1 | 2 | 3; title: string; icon: LucideIcon }> = [
-  { id: 1, title: 'Only box', icon: Package },
-  { id: 2, title: '1 pallet with 1 SKU', icon: LayersArrowUp},
-  { id: 3, title: '1 pallet with multi SKU', icon: Boxes },
+const TYPES: Array<{ id: 1 | 2 | 3; title: string; icons: LucideIcon[] }> = [
+  { id: 1, title: 'Only box', icons: [Package] },
+  { id: 2, title: '1 pallet with 1 SKU', icons: [Package, LayersArrowUp] },
+  { id: 3, title: '1 pallet with multi SKU', icons: [Boxes, LayersArrowUp] },
 ];
 
 type PoSortKey =
@@ -677,7 +677,6 @@ export function PurchaseOrders() {
               <div className="text-sm font-medium mb-2">Packing type</div>
               <div className="grid sm:grid-cols-3 gap-2">
                 {TYPES.map((t) => {
-                  const Icon = t.icon;
                   const selected = packingType === t.id;
                   return (
                     <button
@@ -709,7 +708,15 @@ export function PurchaseOrders() {
                         selected ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-200' : ''
                       }`}
                     >
-                      <Icon className={selected ? 'text-amber-600' : 'text-slate-400'} size={18} />
+                      <div
+                        className={`flex items-center gap-1 ${
+                          selected ? 'text-amber-600' : 'text-slate-400'
+                        }`}
+                      >
+                        {t.icons.map((Icon, i) => (
+                          <Icon key={i} size={18} />
+                        ))}
+                      </div>
                       <div className="mt-1 font-semibold text-sm">{t.title}</div>
                     </button>
                   );

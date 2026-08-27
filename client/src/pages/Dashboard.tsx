@@ -10,25 +10,25 @@ const TYPES: Array<{
   id: 1 | 2 | 3;
   title: string;
   desc: string;
-  icon: LucideIcon;
+  icons: LucideIcon[];
 }> = [
   {
     id: 1,
     title: 'Only box',
     desc: 'Pack into boxes only. Each box holds one SKU. No pallet required.',
-    icon: Package,
+    icons: [Package],
   },
   {
     id: 2,
-    title: '1 pallet with one SKU',
+    title: '1 pallet with 1 SKU',
     desc: 'Pallet holds boxes of a single SKU. Each box is still one SKU.',
-    icon: LayersArrowUp,
+    icons: [Package, LayersArrowUp],
   },
   {
     id: 3,
     title: '1 pallet with multi SKU',
     desc: 'Pallet may hold boxes of different SKUs. Each box is still one SKU.',
-    icon: Boxes,
+    icons: [Boxes, LayersArrowUp],
   },
 ];
 
@@ -554,7 +554,6 @@ export function Dashboard() {
                 <div className="text-sm font-medium mb-2">Packing type</div>
                 <div className="grid sm:grid-cols-3 gap-3">
                   {TYPES.map((t) => {
-                    const Icon = t.icon;
                     const selected = form.packingType === t.id;
                     return (
                       <button
@@ -595,7 +594,15 @@ export function Dashboard() {
                             : 'hover:border-slate-300'
                         }`}
                       >
-                        <Icon className={selected ? 'text-amber-600' : 'text-slate-400'} />
+                        <div
+                          className={`flex items-center gap-1.5 ${
+                            selected ? 'text-amber-600' : 'text-slate-400'
+                          }`}
+                        >
+                          {t.icons.map((Icon, i) => (
+                            <Icon key={i} size={20} />
+                          ))}
+                        </div>
                         <div className="mt-2 font-semibold text-sm">{t.title}</div>
                         <div className="mt-1 text-xs text-slate-500">{t.desc}</div>
                       </button>
