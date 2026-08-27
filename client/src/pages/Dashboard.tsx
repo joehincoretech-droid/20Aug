@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Boxes, Package, Plus, Layers, ChevronUp, ChevronDown, ChevronsUpDown, Search, X, type LucideIcon } from 'lucide-react';
+import { Boxes, Package, Plus, LayersArrowUp, ChevronUp, ChevronDown, ChevronsUpDown, Search, X, type LucideIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../api';
 import { Modal } from '../components/Modal';
@@ -22,7 +22,7 @@ const TYPES: Array<{
     id: 2,
     title: '1 pallet with one SKU',
     desc: 'Pallet holds boxes of a single SKU. Each box is still one SKU.',
-    icon: Layers,
+    icon: LayersArrowUp,
   },
   {
     id: 3,

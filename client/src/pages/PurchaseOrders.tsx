@@ -6,7 +6,7 @@ import {
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
-  Layers,
+  LayersArrowUp,
   Package,
   Plus,
   type LucideIcon,
@@ -18,7 +18,7 @@ import type { ProductName, PurchaseOrder, Sow } from '../types';
 
 const TYPES: Array<{ id: 1 | 2 | 3; title: string; icon: LucideIcon }> = [
   { id: 1, title: 'Only box', icon: Package },
-  { id: 2, title: '1 pallet with one SKU', icon: Layers },
+  { id: 2, title: '1 pallet with 1 SKU', icon: LayersArrowUp},
   { id: 3, title: '1 pallet with multi SKU', icon: Boxes },
 ];
 
