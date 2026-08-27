@@ -100,6 +100,7 @@ export interface PurchaseOrder {
   status?: 'open' | 'fulfilled' | string;
   sowCount?: number;
   sowNumbers?: string[];
+  sows?: Array<{ _id: string; sowNumber: string }>;
   progressItems?: SkuProgress[];
 }
 

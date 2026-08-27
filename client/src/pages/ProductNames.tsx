@@ -1,14 +1,20 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../api';
 import { Modal } from '../components/Modal';
 import type { ProductName } from '../types';
+
+type SkuSortKey = 'sku' | 'name';
+type SortDir = 'asc' | 'desc';
 
 export function ProductNames() {
   const [names, setNames] = useState<ProductName[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ProductName | null>(null);
   const [form, setForm] = useState({ sku: '', name: '' });
+  const [sortKey, setSortKey] = useState<SkuSortKey>('sku');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   async function load() {
     const data = await api<{ names: ProductName[] }>('/api/product-names');
@@ -18,6 +24,27 @@ export function ProductNames() {
   useEffect(() => {
     load().catch((err: Error) => toast.error(err.message));
   }, []);
+
+  function handleSort(key: SkuSortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  }
+
+  const sortedNames = useMemo(() => {
+    const list = [...names];
+    list.sort((a, b) => {
+      const cmp =
+        sortKey === 'sku'
+          ? (a.sku || '').localeCompare(b.sku || '')
+          : (a.name || '').localeCompare(b.name || '');
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return list;
+  }, [names, sortKey, sortDir]);
 
   function openCreate() {
     setEditing(null);
@@ -70,6 +97,29 @@ export function ProductNames() {
     }
   }
 
+  function SortButton({ column, label }: { column: SkuSortKey; label: string }) {
+    return (
+      <button
+        type="button"
+        onClick={() => handleSort(column)}
+        className={`inline-flex items-center gap-1 rounded-md px-1 py-0.5 -mx-1 hover:bg-slate-200/70 hover:text-slate-900 ${
+          sortKey === column ? 'text-slate-900' : ''
+        }`}
+      >
+        {label}
+        {sortKey === column ? (
+          sortDir === 'asc' ? (
+            <ChevronUp size={13} />
+          ) : (
+            <ChevronDown size={13} />
+          )
+        ) : (
+          <ChevronsUpDown size={13} className="opacity-40" />
+        )}
+      </button>
+    );
+  }
+
   return (
     <div className="p-8">
       <div className="flex justify-between items-center">
@@ -90,20 +140,24 @@ export function ProductNames() {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-slate-500">
             <tr>
-              <th className="px-4 py-3 font-medium">SKU</th>
-              <th className="px-4 py-3 font-medium">Product Name</th>
+              <th className="px-4 py-3 font-medium">
+                <SortButton column="sku" label="SKU" />
+              </th>
+              <th className="px-4 py-3 font-medium">
+                <SortButton column="name" label="Product Name" />
+              </th>
               <th className="px-4 py-3 font-medium w-40">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {names.length === 0 && (
+            {sortedNames.length === 0 && (
               <tr>
                 <td colSpan={3} className="px-4 py-10 text-center text-slate-400">
                   No items yet. Run seed or add one.
                 </td>
               </tr>
             )}
-            {names.map((item) => (
+            {sortedNames.map((item) => (
               <tr key={item._id} className="border-t">
                 <td className="px-4 py-3 font-mono">{item.sku}</td>
                 <td className="px-4 py-3 font-medium">{item.name}</td>

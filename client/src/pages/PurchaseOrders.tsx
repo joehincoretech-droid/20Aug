@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Boxes, Layers, Package, Plus, type LucideIcon } from 'lucide-react';
+import {
+  Boxes,
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
+  Layers,
+  Package,
+  Plus,
+  type LucideIcon,
+} from 'lucide-react';
 import { api } from '../api';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
@@ -12,6 +21,72 @@ const TYPES: Array<{ id: 1 | 2 | 3; title: string; icon: LucideIcon }> = [
   { id: 2, title: '1 pallet with one SKU', icon: Layers },
   { id: 3, title: '1 pallet with multi SKU', icon: Boxes },
 ];
+
+type PoSortKey =
+  | 'poNumber'
+  | 'clientCode'
+  | 'productOrder'
+  | 'progress'
+  | 'status'
+  | 'createdAt'
+  | 'createdBy';
+type SortDir = 'asc' | 'desc';
+type PoStatusFilter = 'all' | 'open' | 'fulfilled';
+
+function poStatusOf(order: PurchaseOrder): 'open' | 'fulfilled' {
+  return order.status === 'fulfilled' ? 'fulfilled' : 'open';
+}
+
+function PoStatusBadge({ status }: { status: 'open' | 'fulfilled' }) {
+  return (
+    <span
+      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${
+        status === 'fulfilled'
+          ? 'bg-emerald-100 text-emerald-800'
+          : 'bg-amber-100 text-amber-900'
+      }`}
+    >
+      {status}
+    </span>
+  );
+}
+
+function SortHeader({
+  label,
+  column,
+  sortKey,
+  sortDir,
+  onSort,
+}: {
+  label: string;
+  column: PoSortKey;
+  sortKey: PoSortKey;
+  sortDir: SortDir;
+  onSort: (key: PoSortKey) => void;
+}) {
+  return (
+    <th className="px-4 py-3 font-medium whitespace-nowrap">
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className={`inline-flex items-center gap-1 rounded-md px-1 py-0.5 -mx-1 hover:bg-slate-200/70 hover:text-slate-900 ${
+          sortKey === column ? 'text-slate-900' : ''
+        }`}
+      >
+        {label}
+        {sortKey === column ? (
+          sortDir === 'asc' ? (
+            <ChevronUp size={13} />
+          ) : (
+            <ChevronDown size={13} />
+          )
+        ) : (
+          <ChevronsUpDown size={13} className="opacity-40" />
+        )}
+      </button>
+    </th>
+  );
+}
 
 export function PurchaseOrders() {
   const navigate = useNavigate();
@@ -34,6 +109,54 @@ export function PurchaseOrders() {
   const [selectedSKUs, setSelectedSKUs] = useState<string[]>([]);
   const [targetQtys, setTargetQtys] = useState<Record<string, string>>({});
   const [previewSow, setPreviewSow] = useState('');
+  const [sortKey, setSortKey] = useState<PoSortKey>('createdAt');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [statusFilter, setStatusFilter] = useState<PoStatusFilter>('all');
+
+  function handleSort(key: PoSortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir(key === 'createdAt' || key === 'progress' ? 'desc' : 'asc');
+    }
+  }
+
+  const sortedOrders = useMemo(() => {
+    let list = [...orders];
+    if (statusFilter !== 'all') {
+      list = list.filter((o) => poStatusOf(o) === statusFilter);
+    }
+    list.sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'poNumber') cmp = a.poNumber.localeCompare(b.poNumber);
+      else if (sortKey === 'clientCode') cmp = a.clientCode.localeCompare(b.clientCode);
+      else if (sortKey === 'productOrder')
+        cmp = (a.productOrder || '').localeCompare(b.productOrder || '');
+      else if (sortKey === 'createdBy')
+        cmp = (a.createdBy?.username || '').localeCompare(b.createdBy?.username || '');
+      else if (sortKey === 'createdAt')
+        cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      else if (sortKey === 'status') cmp = poStatusOf(a).localeCompare(poStatusOf(b));
+      else if (sortKey === 'progress') {
+        const pctA = a.orderedQty ? (a.scannedQty ?? 0) / a.orderedQty : 0;
+        const pctB = b.orderedQty ? (b.scannedQty ?? 0) / b.orderedQty : 0;
+        cmp = pctA - pctB;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return list;
+  }, [orders, sortKey, sortDir, statusFilter]);
+
+  const statusCounts = useMemo(() => {
+    let open = 0;
+    let fulfilled = 0;
+    for (const o of orders) {
+      if (poStatusOf(o) === 'fulfilled') fulfilled += 1;
+      else open += 1;
+    }
+    return { all: orders.length, open, fulfilled };
+  }, [orders]);
 
   async function load() {
     const [poData, skuData] = await Promise.all([
@@ -246,32 +369,75 @@ export function PurchaseOrders() {
         </button>
       </div>
 
-      <div className="mt-6 bg-white rounded-2xl border shadow-sm overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="mt-6 flex flex-wrap items-center gap-3">
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+          {([
+            { id: 'all', label: 'All' },
+            { id: 'open', label: 'Open' },
+            { id: 'fulfilled', label: 'Fulfilled' },
+          ] as const).map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setStatusFilter(tab.id)}
+              className={`rounded-lg px-3 py-2 text-xs font-medium capitalize transition ${
+                statusFilter === tab.id
+                  ? tab.id === 'fulfilled'
+                    ? 'bg-emerald-600 text-white'
+                    : tab.id === 'open'
+                      ? 'bg-amber-500 text-slate-950'
+                      : 'bg-slate-800 text-white'
+                  : 'bg-white border text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {tab.label}
+              <span className="ml-1.5 opacity-80">
+                {statusCounts[tab.id]}
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="text-xs text-slate-400 sm:ml-auto">
+          {sortedOrders.length} / {orders.length} POs
+        </div>
+      </div>
+
+      <div className="mt-3 bg-white rounded-2xl border shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[800px] text-sm">
           <thead className="bg-slate-50 text-left text-slate-500">
             <tr>
-              <th className="px-4 py-3 font-medium">PO</th>
-              <th className="px-4 py-3 font-medium">Client ID</th>
-              <th className="px-4 py-3 font-medium">Producted order</th>
-              <th className="px-4 py-3 font-medium">Progress</th>
-              <th className="px-4 py-3 font-medium">Created</th>
-              <th className="px-4 py-3 font-medium">By</th>
+              <SortHeader label="PO" column="poNumber" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+              <SortHeader label="Client ID" column="clientCode" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+              <SortHeader
+                label="Product order"
+                column="productOrder"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={handleSort}
+              />
+              <SortHeader label="Progress" column="progress" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+              <SortHeader label="Status" column="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+              <SortHeader label="Created" column="createdAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+              <SortHeader label="By" column="createdBy" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
             </tr>
           </thead>
           <tbody>
-            {orders.length === 0 && (
+            {sortedOrders.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-slate-400">
-                  No purchase orders yet.
+                <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
+                  {orders.length === 0
+                    ? 'No purchase orders yet.'
+                    : 'No POs match this status filter.'}
                 </td>
               </tr>
             )}
-            {orders.map((order) => {
+            {sortedOrders.map((order) => {
               const ordered = order.orderedQty ?? 0;
               const scanned = order.scannedQty ?? 0;
               const remaining = order.remainingQty ?? Math.max(0, ordered - scanned);
               const pct = ordered > 0 ? Math.min(100, Math.round((scanned / ordered) * 100)) : 0;
-              const fulfilled = order.status === 'fulfilled';
+              const status = poStatusOf(order);
               return (
                 <tr
                   key={order._id}
@@ -284,9 +450,7 @@ export function PurchaseOrders() {
                   <td className="px-4 py-3 min-w-[140px]">
                     <div className="font-medium">
                       {scanned}/{ordered}
-                      {fulfilled ? (
-                        <span className="ml-1 text-[11px] font-medium text-emerald-700">fulfilled</span>
-                      ) : (
+                      {status !== 'fulfilled' && (
                         <span className="ml-1 text-[11px] font-normal text-slate-400">
                           · {remaining} left to allocate
                         </span>
@@ -302,6 +466,9 @@ export function PurchaseOrders() {
                       {order.sowCount || 0} SOW(s)
                     </div>
                   </td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <PoStatusBadge status={status} />
+                  </td>
                   <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
                     {new Date(order.createdAt).toLocaleString()}
                   </td>
@@ -311,12 +478,19 @@ export function PurchaseOrders() {
             })}
           </tbody>
         </table>
+        </div>
       </div>
 
       {detail && !createSowOpen && (
         <Modal title={`PO ${detail.poNumber}`} onClose={() => setDetail(null)} wide>
           <div className="space-y-4">
-            <div className="grid sm:grid-cols-3 gap-3 text-sm">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+              <div className="rounded-xl bg-slate-50 border px-3 py-2">
+                <div className="text-[11px] uppercase text-slate-400">Status</div>
+                <div className="mt-1">
+                  <PoStatusBadge status={poStatusOf(detail)} />
+                </div>
+              </div>
               <div className="rounded-xl bg-slate-50 border px-3 py-2">
                 <div className="text-[11px] uppercase text-slate-400">Client</div>
                 <div className="font-semibold">{detail.clientCode}</div>
@@ -376,10 +550,46 @@ export function PurchaseOrders() {
               </table>
             </div>
 
-            {detail.sowNumbers && detail.sowNumbers.length > 0 && (
+            {((detail.sows && detail.sows.length > 0) ||
+              (detail.sowNumbers && detail.sowNumbers.length > 0)) && (
               <div className="text-sm text-slate-600">
-                Linked SOWs:{' '}
-                <span className="font-mono">{detail.sowNumbers.join(', ')}</span>
+                <div className="font-medium text-slate-800 mb-1.5">Linked SOWs</div>
+                <div className="flex flex-wrap gap-2">
+                  {(detail.sows && detail.sows.length
+                    ? detail.sows
+                    : (detail.sowNumbers || []).map((sowNumber) => ({
+                        _id: '',
+                        sowNumber,
+                      }))
+                  ).map((sow) =>
+                    canPack && sow._id ? (
+                      <button
+                        key={sow._id}
+                        type="button"
+                        className="font-mono text-sm rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-950 hover:bg-amber-100 hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDetail(null);
+                          navigate(`/pack/${sow._id}`);
+                        }}
+                      >
+                        {sow.sowNumber}
+                      </button>
+                    ) : (
+                      <span
+                        key={sow.sowNumber}
+                        className="font-mono text-sm rounded-lg border bg-slate-50 px-2.5 py-1 text-slate-700"
+                        title={
+                          canPack
+                            ? undefined
+                            : 'Open packing from a worker/admin account'
+                        }
+                      >
+                        {sow.sowNumber}
+                      </span>
+                    )
+                  )}
+                </div>
               </div>
             )}
 

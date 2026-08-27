@@ -43,6 +43,8 @@ purchaseOrdersRouter.get('/', requireRole('admin', 'po'), async (_req: Request, 
         remainingQty: progress.remainingQty,
         status: progress.status,
         sowCount: progress.sowCount,
+        sowNumbers: progress.sowNumbers,
+        sows: progress.sows,
         progressItems: progress.items,
       };
     })
@@ -73,6 +75,7 @@ purchaseOrdersRouter.get('/:poNumber', async (req: Request, res: Response) => {
       status: progress.status,
       sowCount: progress.sowCount,
       sowNumbers: progress.sowNumbers,
+      sows: progress.sows,
       progressItems: progress.items,
     },
   });

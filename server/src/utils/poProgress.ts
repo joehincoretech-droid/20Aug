@@ -19,6 +19,11 @@ export interface SowSkuProgress {
   poRemaining: number;
 }
 
+export interface PoLinkedSow {
+  _id: string;
+  sowNumber: string;
+}
+
 export interface PoProgress {
   orderedQty: number;
   scannedQty: number;
@@ -27,6 +32,7 @@ export interface PoProgress {
   items: SkuProgress[];
   sowCount: number;
   sowNumbers: string[];
+  sows: PoLinkedSow[];
 }
 
 export type ScanQtyError = {
@@ -160,14 +166,19 @@ export async function buildPoProgress(
     }
   }
   const remainingQty = progressItems.reduce((n, i) => n + i.remainingQty, 0);
+  const sows = scanned.sowIds.map((id, i) => ({
+    _id: id,
+    sowNumber: scanned.sowNumbers[i] || id,
+  }));
   return {
     orderedQty,
     scannedQty: scanned.total,
     remainingQty,
     status: isPoFulfilled(progressItems) ? 'fulfilled' : 'open',
     items: progressItems,
-    sowCount: scanned.sowNumbers.length,
-    sowNumbers: scanned.sowNumbers,
+    sowCount: sows.length,
+    sowNumbers: sows.map((s) => s.sowNumber),
+    sows,
   };
 }
 
