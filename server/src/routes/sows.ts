@@ -11,6 +11,7 @@ import { authRequired, requireRole } from '../middleware/auth.js';
 import {
   remainingBySkuForPo,
   resolveTargetItems,
+  scannedBySkuForSow,
   syncPoStatus,
 } from '../utils/poProgress.js';
 
@@ -351,6 +352,27 @@ sowsRouter.post('/:id/complete', requireRole('admin', 'worker'), async (req: Req
       message: 'One or more boxes are not linked to a pallet',
       unlinkedBoxes: unlinked.map((b) => b.boxId),
     });
+  }
+
+  const po = await PurchaseOrder.findOne({ poNumber: sow.poNumber });
+  const targets = resolveTargetItems(sow, po?.items || []);
+  if (targets.length) {
+    const sowScanned = await scannedBySkuForSow(sow._id);
+    const unmet = targets.filter((t) => (sowScanned.bySku.get(t.sku) || 0) < t.targetQty);
+    if (unmet.length) {
+      const detail = unmet
+        .map((t) => `${t.sku} ${sowScanned.bySku.get(t.sku) || 0}/${t.targetQty}`)
+        .join(', ');
+      return res.status(400).json({
+        code: 'SOW_TARGETS_UNMET',
+        message: `SOW targets not met yet: ${detail}`,
+        unmet: unmet.map((t) => ({
+          sku: t.sku,
+          targetQty: t.targetQty,
+          scannedQty: sowScanned.bySku.get(t.sku) || 0,
+        })),
+      });
+    }
   }
 
   sow.status = 'completed';

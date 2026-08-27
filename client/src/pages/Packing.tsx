@@ -413,11 +413,22 @@ export function Packing() {
             <Save size={18} /> Save
           </button>
           <button
-            disabled={readOnly || busy}
+            disabled={readOnly || busy || !sowTargetsMet}
             onClick={() => finish(false)}
-            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 text-white px-4 py-2.5 font-semibold disabled:opacity-50"
+            title={
+              readOnly
+                ? 'SOW already completed'
+                : !sowTargetsMet
+                  ? 'Finish when all SOW target progress is met'
+                  : 'Finish / confirm this SOW'
+            }
+            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${
+              !readOnly && sowTargetsMet
+                ? 'bg-emerald-600 text-white hover:bg-emerald-500'
+                : 'bg-slate-300 text-slate-500'
+            }`}
           >
-            <Check size={18} /> Finish / Confirm
+            <Check size={18} /> Finish
           </button>
         </div>
       </div>
