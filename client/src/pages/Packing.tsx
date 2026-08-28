@@ -399,6 +399,21 @@ export function Packing() {
     }
   }
 
+  async function unfinishSow() {
+    if (!window.confirm('Reopen this SOW for editing and packing?')) return;
+    setBusy(true);
+    try {
+      const data = await api<{ sow: Sow }>(`/api/sows/${sowId}/uncomplete`, { method: 'POST' });
+      setSow(data.sow);
+      toast.success('SOW reopened — you can edit and pack again');
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Request failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function onScan(value: string) {
     const target = scanner;
     setScanner(null);
@@ -485,7 +500,9 @@ export function Packing() {
     if (readOnly) {
       return {
         tone: 'ready' as const,
-        text: 'This SOW is completed — select a pallet and box below to review packed products.',
+        text: isAdmin
+          ? 'This SOW is completed — review only. Click Unfinish to edit IDs or resume packing.'
+          : 'This SOW is completed — select a pallet and box below to review packed products.',
       };
     }
     if (sowTargetsMet) {
@@ -557,22 +574,26 @@ export function Packing() {
             <Save size={18} /> Save
           </button>
           <button
-            disabled={readOnly || busy || !sowTargetsMet}
-            onClick={() => finish(false)}
+            disabled={readOnly && !isAdmin ? true : readOnly ? busy : busy || !sowTargetsMet}
+            onClick={() => (readOnly && isAdmin ? unfinishSow() : finish(false))}
             title={
-              readOnly
-                ? 'SOW already completed'
-                : !sowTargetsMet
-                  ? 'Finish when all SOW target progress is met'
-                  : 'Finish / confirm this SOW'
+              readOnly && isAdmin
+                ? 'Reopen this SOW for editing and packing'
+                : readOnly
+                  ? 'SOW already completed'
+                  : !sowTargetsMet
+                    ? 'Finish when all SOW target progress is met'
+                    : 'Finish / confirm this SOW'
             }
             className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${
-              !readOnly && sowTargetsMet
-                ? 'bg-emerald-600 text-white hover:bg-emerald-500'
-                : 'bg-slate-300 text-slate-500'
+              readOnly && isAdmin
+                ? 'bg-slate-500 text-white hover:bg-slate-600'
+                : !readOnly && sowTargetsMet
+                  ? 'bg-emerald-600 text-white hover:bg-emerald-500'
+                  : 'bg-slate-300 text-slate-500'
             }`}
           >
-            <Check size={18} /> Finish
+            <Check size={18} /> {readOnly && isAdmin ? 'Unfinish' : 'Finish'}
           </button>
         </div>
       </div>
@@ -593,7 +614,7 @@ export function Packing() {
           </span>
         </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {isAdmin ? (
+          {isAdmin && !readOnly ? (
             <EditableInfoItem
               label="SOW Number"
               value={sowNumberDraft}
@@ -687,9 +708,10 @@ export function Packing() {
                 meter={currentBox ? capacityMeter(boxFill, boxCapacity) : '—/—'}
                 fill={currentBox ? capacityFillRatio(boxFill, boxCapacity) : 0}
                 disabled={readOnly}
-                inputDisabled={readOnly && !isAdmin}
+                inputDisabled={readOnly}
                 renameEnabled={
                   isAdmin &&
+                  !readOnly &&
                   Boolean(currentBox) &&
                   boxId.trim() !== '' &&
                   boxId.trim() !== currentBox?.boxId
@@ -774,9 +796,10 @@ export function Packing() {
                 meter={hasPallet ? `${palletFill}/50` : '—/50'}
                 fill={hasPallet ? palletFill / 50 : 0}
                 disabled={readOnly}
-                inputDisabled={readOnly && !isAdmin}
+                inputDisabled={readOnly}
                 renameEnabled={
                   isAdmin &&
+                  !readOnly &&
                   Boolean(currentPallet) &&
                   palletId.trim() !== '' &&
                   palletId.trim() !== currentPallet?.palletId
@@ -830,9 +853,10 @@ export function Packing() {
                     meter={currentBox ? capacityMeter(boxFill, boxCapacity) : '—/—'}
                     fill={currentBox ? capacityFillRatio(boxFill, boxCapacity) : 0}
                     disabled={readOnly}
-                    inputDisabled={readOnly && !isAdmin}
+                    inputDisabled={readOnly}
                     renameEnabled={
                       isAdmin &&
+                      !readOnly &&
                       Boolean(currentBox) &&
                       boxId.trim() !== '' &&
                       boxId.trim() !== currentBox?.boxId

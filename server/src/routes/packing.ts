@@ -300,6 +300,9 @@ packingRouter.patch('/boxes/rename', requireRole('admin'), async (req: Request, 
 
   const sow = await Sow.findById(sowId);
   if (!sow) return res.status(404).json({ message: 'SOW not found' });
+  if (sow.status === 'completed') {
+    return res.status(400).json({ message: 'Reopen this SOW (Unfinish) before editing' });
+  }
 
   const trimmedOld = String(oldBoxId).trim();
   const trimmedNew = String(newBoxId).trim();
@@ -346,6 +349,9 @@ packingRouter.patch('/pallets/rename', requireRole('admin'), async (req: Request
 
   const sow = await Sow.findById(sowId);
   if (!sow) return res.status(404).json({ message: 'SOW not found' });
+  if (sow.status === 'completed') {
+    return res.status(400).json({ message: 'Reopen this SOW (Unfinish) before editing' });
+  }
   if (sow.packingType === 1) {
     return res.status(400).json({ message: 'Box Only packing does not use pallets' });
   }

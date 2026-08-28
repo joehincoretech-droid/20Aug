@@ -168,6 +168,40 @@ function PieWidget({ slices, innerRadius }: { slices: DashboardStats['poStatusSl
   );
 }
 
+function FulfillmentBadge({
+  pct,
+  scanned,
+  ordered,
+}: {
+  pct: number;
+  scanned: number;
+  ordered: number;
+}) {
+  const done = pct >= 100;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span
+        className={`inline-flex w-fit flex-wrap items-center gap-x-1.5 rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums ${
+          done ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
+        }`}
+      >
+        <span>{pct}%</span>
+        <span className={`font-normal ${done ? 'text-emerald-700' : 'text-amber-800'}`}>
+          ({scanned}/{ordered} units)
+        </span>
+      </span>
+      {ordered > 0 && (
+        <div className="h-1.5 w-full max-w-[140px] rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className={`h-full ${done ? 'bg-emerald-500' : 'bg-amber-500'}`}
+            style={{ width: `${Math.min(100, pct)}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DeliveryTable({
   title,
   rows,
@@ -348,8 +382,12 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
                     <tr key={sow._id} className="border-t border-slate-100">
                       <td className="px-4 py-2.5 font-mono text-slate-800">{sow.sowNumber}</td>
                       <td className="px-4 py-2.5 font-mono text-slate-800">{sow.poNumber}</td>
-                      <td className="px-4 py-2.5 text-slate-700">
-                        {sow.progressPct}% complete ({sow.scannedQty}/{sow.orderedQty} units)
+                      <td className="px-4 py-2.5">
+                        <FulfillmentBadge
+                          pct={sow.progressPct}
+                          scanned={sow.scannedQty}
+                          ordered={sow.orderedQty}
+                        />
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         <Link

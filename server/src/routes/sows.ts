@@ -410,9 +410,38 @@ sowsRouter.post('/:id/complete', requireRole('admin', 'worker'), async (req: Req
   res.json({ sow, totalAmount, poStatus });
 });
 
+sowsRouter.post('/:id/uncomplete', requireRole('admin'), async (req: Request, res: Response) => {
+  const sow = await Sow.findById(req.params.id);
+  if (!sow) return res.status(404).json({ message: 'SOW not found' });
+  if (sow.status !== 'completed') {
+    return res.status(400).json({ message: 'Only completed SOWs can be reopened' });
+  }
+
+  const updated = await Sow.findByIdAndUpdate(
+    sow._id,
+    { $set: { status: 'packing' }, $unset: { completedAt: '', completedBy: '' } },
+    { new: true }
+  );
+  if (!updated) return res.status(404).json({ message: 'SOW not found' });
+
+  const poStatus = await syncPoStatus(updated.poNumber);
+
+  await writeAudit(req.user!._id, 'PACKING_UNCOMPLETE', {
+    sowId: updated._id,
+    sowNumber: updated.sowNumber,
+    poNumber: updated.poNumber,
+    poStatus,
+  });
+
+  res.json({ sow: updated, poStatus });
+});
+
 sowsRouter.patch('/:id/sow-number', requireRole('admin'), async (req: Request, res: Response) => {
   const sow = await Sow.findById(req.params.id);
   if (!sow) return res.status(404).json({ message: 'SOW not found' });
+  if (sow.status === 'completed') {
+    return res.status(400).json({ message: 'Reopen this SOW (Unfinish) before editing' });
+  }
 
   const sowNumber = String(req.body?.sowNumber || '').trim();
   if (!sowNumber) {
