@@ -70,13 +70,15 @@ export function Layout() {
               <FileText size={16} /> Purchase Orders
             </NavLink>
           )}
+          {(user?.role === 'admin' || user?.role === 'po') && (
+            <NavLink to="/admin/product-names" className={linkClass} onClick={closeDrawer}>
+              <Tag size={16} /> SKU / Product Names
+            </NavLink>
+          )}
           {user?.role === 'admin' && (
             <>
               <NavLink to="/admin/users" className={linkClass} onClick={closeDrawer}>
                 <Users size={16} /> User Management
-              </NavLink>
-              <NavLink to="/admin/product-names" className={linkClass} onClick={closeDrawer}>
-                <Tag size={16} /> SKU / Product Names
               </NavLink>
               <NavLink to="/admin/history" className={linkClass} onClick={closeDrawer}>
                 <ClipboardList size={16} /> Packing History

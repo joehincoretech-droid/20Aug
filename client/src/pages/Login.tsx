@@ -71,7 +71,7 @@ export function Login() {
             {busy ? 'Signing in…' : 'Login'}
           </button>
           <p className="mt-4 text-xs text-slate-400">
-            Demo: admin / admin123 · worker / worker123 · poclerk / poclerk123
+            Demo: admin / Admin123! · worker / Worker123! · poclerk / Poclerk123!
           </p>
         </form>
       </div>

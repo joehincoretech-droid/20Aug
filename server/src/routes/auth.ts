@@ -5,6 +5,7 @@ import type { SignOptions } from 'jsonwebtoken';
 import { User } from '../models/User.js';
 import { writeAudit } from '../utils/audit.js';
 import { authRequired } from '../middleware/auth.js';
+import { isPasswordExpired, PASSWORD_MAX_AGE_DAYS } from '../utils/password.js';
 
 export const authRouter = Router();
 
@@ -20,6 +21,14 @@ authRouter.post('/login', async (req: Request, res: Response) => {
   const ok = await bcrypt.compare(password, user.password);
   if (!ok) {
     return res.status(401).json({ message: 'Invalid username or password' });
+  }
+  const passwordChangedAt = user.passwordChangedAt ?? user.createdAt;
+  if (isPasswordExpired(passwordChangedAt, user.createdAt)) {
+    return res.status(403).json({
+      message: `Password expired. Please ask an admin to set a new password (limit: ${PASSWORD_MAX_AGE_DAYS} days).`,
+      code: 'PASSWORD_EXPIRED',
+      passwordMaxAgeDays: PASSWORD_MAX_AGE_DAYS,
+    });
   }
   const token = jwt.sign(
     { id: user._id, role: user.role },

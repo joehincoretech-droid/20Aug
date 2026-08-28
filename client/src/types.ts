@@ -5,6 +5,10 @@ export interface User {
   username: string;
   role: UserRole;
   createdAt?: string;
+  passwordChangedAt?: string;
+  passwordDaysUsed?: number;
+  passwordExpired?: boolean;
+  passwordMaxAgeDays?: number;
 }
 
 export interface SkuLabel {

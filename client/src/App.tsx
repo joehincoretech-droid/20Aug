@@ -93,7 +93,7 @@ export default function App() {
         <Route
           path="/admin/product-names"
           element={
-            <Guard roles={['admin']}>
+            <Guard roles={['admin', 'po']}>
               <ProductNames />
             </Guard>
           }

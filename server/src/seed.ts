@@ -42,23 +42,23 @@ const SAMPLE_POS = [
 async function run(): Promise<void> {
   await connectDb(process.env.MONGODB_URI);
 
-  const password = await bcrypt.hash('admin123', 10);
-  const workerPassword = await bcrypt.hash('worker123', 10);
-  const poPassword = await bcrypt.hash('poclerk123', 10);
+  const password = await bcrypt.hash('Admin123!', 10);
+  const workerPassword = await bcrypt.hash('Worker123!', 10);
+  const poPassword = await bcrypt.hash('Poclerk123!', 10);
 
   await User.findOneAndUpdate(
     { username: 'admin' },
-    { username: 'admin', password, role: 'admin' },
+    { username: 'admin', password, role: 'admin', passwordChangedAt: new Date() },
     { upsert: true }
   );
   await User.findOneAndUpdate(
     { username: 'worker' },
-    { username: 'worker', password: workerPassword, role: 'worker' },
+    { username: 'worker', password: workerPassword, role: 'worker', passwordChangedAt: new Date() },
     { upsert: true }
   );
   await User.findOneAndUpdate(
     { username: 'poclerk' },
-    { username: 'poclerk', password: poPassword, role: 'po' },
+    { username: 'poclerk', password: poPassword, role: 'po', passwordChangedAt: new Date() },
     { upsert: true }
   );
 
@@ -108,9 +108,9 @@ async function run(): Promise<void> {
   }
 
   console.log('Seed complete.');
-  console.log('  Admin    → username: admin     password: admin123');
-  console.log('  Worker   → username: worker    password: worker123');
-  console.log('  PO clerk → username: poclerk   password: poclerk123');
+  console.log('  Admin    → username: admin     password: Admin123!');
+  console.log('  Worker   → username: worker    password: Worker123!');
+  console.log('  PO clerk → username: poclerk   password: Poclerk123!');
   console.log('  Sample PO-1001 producted order: 奶黃*10，雙黃白蓮蓉*20');
   process.exit(0);
 }

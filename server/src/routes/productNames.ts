@@ -10,7 +10,7 @@ productNamesRouter.get('/', authRequired, async (_req: Request, res: Response) =
   res.json({ names });
 });
 
-productNamesRouter.use(authRequired, requireRole('admin'));
+productNamesRouter.use(authRequired, requireRole('admin', 'po'));
 
 productNamesRouter.post('/', async (req: Request, res: Response) => {
   const { sku, name } = req.body || {};
