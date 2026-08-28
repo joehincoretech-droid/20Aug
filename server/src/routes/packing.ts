@@ -291,3 +291,95 @@ packingRouter.post('/boxes/:boxId/complete', async (req: Request, res: Response)
   });
   res.json({ box });
 });
+
+packingRouter.patch('/boxes/rename', requireRole('admin'), async (req: Request, res: Response) => {
+  const { sowId, oldBoxId, newBoxId } = req.body || {};
+  if (!sowId || !oldBoxId || !newBoxId) {
+    return res.status(400).json({ message: 'sowId, oldBoxId, and newBoxId are required' });
+  }
+
+  const sow = await Sow.findById(sowId);
+  if (!sow) return res.status(404).json({ message: 'SOW not found' });
+
+  const trimmedOld = String(oldBoxId).trim();
+  const trimmedNew = String(newBoxId).trim();
+  if (!trimmedNew) {
+    return res.status(400).json({ message: 'newBoxId is required' });
+  }
+  if (trimmedOld === trimmedNew) {
+    return res.status(400).json({ message: 'New Outer Box ID must differ from the current ID' });
+  }
+
+  const box = await Box.findOne({ boxId: trimmedOld, sowId: sow._id });
+  if (!box) return res.status(404).json({ message: 'Outer box not found on this SOW' });
+
+  const existing = await Box.findOne({ boxId: trimmedNew });
+  if (existing) {
+    return res.status(409).json({ message: `Outer Box ID ${trimmedNew} is already in use` });
+  }
+
+  box.boxId = trimmedNew;
+  await box.save();
+
+  const pallets = await Pallet.find({ sowId: sow._id, boxes: trimmedOld });
+  await Promise.all(
+    pallets.map(async (pallet) => {
+      pallet.boxes = pallet.boxes.map((id) => (id === trimmedOld ? trimmedNew : id));
+      await pallet.save();
+    })
+  );
+
+  await writeAudit(req.user!._id, 'BOX_RENAME', {
+    sowId: sow._id,
+    previous: trimmedOld,
+    boxId: trimmedNew,
+  });
+
+  res.json({ box });
+});
+
+packingRouter.patch('/pallets/rename', requireRole('admin'), async (req: Request, res: Response) => {
+  const { sowId, oldPalletId, newPalletId } = req.body || {};
+  if (!sowId || !oldPalletId || !newPalletId) {
+    return res.status(400).json({ message: 'sowId, oldPalletId, and newPalletId are required' });
+  }
+
+  const sow = await Sow.findById(sowId);
+  if (!sow) return res.status(404).json({ message: 'SOW not found' });
+  if (sow.packingType === 1) {
+    return res.status(400).json({ message: 'Box Only packing does not use pallets' });
+  }
+
+  const trimmedOld = String(oldPalletId).trim();
+  const trimmedNew = String(newPalletId).trim();
+  if (!trimmedNew) {
+    return res.status(400).json({ message: 'newPalletId is required' });
+  }
+  if (trimmedOld === trimmedNew) {
+    return res.status(400).json({ message: 'New Pallet ID must differ from the current ID' });
+  }
+
+  const pallet = await Pallet.findOne({ palletId: trimmedOld, sowId: sow._id });
+  if (!pallet) return res.status(404).json({ message: 'Pallet not found on this SOW' });
+
+  const existing = await Pallet.findOne({ palletId: trimmedNew });
+  if (existing) {
+    return res.status(409).json({ message: `Pallet ID ${trimmedNew} is already in use` });
+  }
+
+  pallet.palletId = trimmedNew;
+  await pallet.save();
+
+  await Box.updateMany(
+    { sowId: sow._id, palletId: trimmedOld },
+    { $set: { palletId: trimmedNew } }
+  );
+
+  await writeAudit(req.user!._id, 'PALLET_RENAME', {
+    sowId: sow._id,
+    previous: trimmedOld,
+    palletId: trimmedNew,
+  });
+
+  res.json({ pallet });
+});

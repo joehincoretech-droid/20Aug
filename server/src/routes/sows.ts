@@ -409,3 +409,34 @@ sowsRouter.post('/:id/complete', requireRole('admin', 'worker'), async (req: Req
 
   res.json({ sow, totalAmount, poStatus });
 });
+
+sowsRouter.patch('/:id/sow-number', requireRole('admin'), async (req: Request, res: Response) => {
+  const sow = await Sow.findById(req.params.id);
+  if (!sow) return res.status(404).json({ message: 'SOW not found' });
+
+  const sowNumber = String(req.body?.sowNumber || '').trim();
+  if (!sowNumber) {
+    return res.status(400).json({ message: 'sowNumber is required' });
+  }
+
+  const duplicate = await Sow.findOne({
+    _id: { $ne: sow._id },
+    poNumber: sow.poNumber,
+    sowNumber,
+  });
+  if (duplicate) {
+    return res.status(409).json({ message: `SOW number ${sowNumber} already exists for this PO` });
+  }
+
+  const previous = sow.sowNumber;
+  sow.sowNumber = sowNumber;
+  await sow.save();
+
+  await writeAudit(req.user!._id, 'SOW_RENAME', {
+    sowId: sow._id,
+    previous,
+    sowNumber,
+  });
+
+  res.json({ sow });
+});

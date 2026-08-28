@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { BarChart3 } from 'lucide-react';
 import { api } from '../api';
 import { DashboardPanel } from '../components/DashboardPanel';
 import { useAuth } from '../context/AuthContext';
@@ -22,43 +21,24 @@ export function Dashboard() {
   const today = formatDate(new Date());
 
   return (
-    <div className="p-4 sm:p-8 max-w-[1400px]">
-      <header className="border-b border-slate-200 pb-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-4">
-            <div className="rounded-lg border border-slate-200 bg-white p-3 text-slate-700 shadow-sm">
-              <BarChart3 size={22} strokeWidth={1.75} />
-            </div>
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                Warehouse Operations
-              </p>
-              <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">
-                Operations Dashboard
-              </h1>
-              <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-600">
-                Executive summary of purchase order fulfillment, shipment order progress, and
-                outbound packing performance.
-              </p>
-            </div>
+    <div className="min-h-full bg-[#f8f9fb] p-4 sm:p-8">
+      <div className="mx-auto max-w-[1400px]">
+        <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Operations Dashboard</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Purchase order fulfillment, shipment progress, and packing performance.
+            </p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-right sm:min-w-[180px]">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-              Report date
-            </div>
-            <div className="mt-1 text-sm font-medium tabular-nums text-slate-800">{today}</div>
-            {user && (
-              <div className="mt-2 text-xs text-slate-500">
-                Signed in as <span className="font-medium text-slate-700">{user.username}</span>
-              </div>
-            )}
+          <div className="rounded-2xl bg-white px-5 py-3 text-sm shadow-[0_4px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-100">
+            <div className="text-xs text-slate-400">Report date</div>
+            <div className="mt-0.5 font-semibold tabular-nums text-slate-800">{today}</div>
+            {user && <div className="mt-1 text-xs text-slate-500">{user.username}</div>}
           </div>
-        </div>
-      </header>
+        </header>
 
-      <div className="mt-8">
         {loading && (
-          <div className="rounded-lg border border-slate-200 bg-white px-6 py-20 text-center">
+          <div className="rounded-2xl bg-white px-6 py-20 text-center shadow-[0_4px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-100">
             <p className="text-sm font-medium text-slate-600">Retrieving operational metrics…</p>
             <p className="mt-1 text-xs text-slate-400">Please wait while data is compiled.</p>
           </div>

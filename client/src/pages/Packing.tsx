@@ -13,6 +13,7 @@ import toast from 'react-hot-toast';
 import { api, ApiError } from '../api';
 import { Modal } from '../components/Modal';
 import { QrScanner } from '../components/QrScanner';
+import { useAuth } from '../context/AuthContext';
 import type { Box, Pallet, ProductName, SkuLabel, Sow } from '../types';
 import { formatDateTime } from '../utils/date';
 
@@ -50,7 +51,9 @@ function capacityFillRatio(fill: number, capacity: number | null): number {
 export function Packing() {
   const { sowId } = useParams<{ sowId: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const productInput = useRef<HTMLInputElement>(null);
+  const isAdmin = user?.role === 'admin';
 
   const [sow, setSow] = useState<Sow | null>(null);
   const [boxes, setBoxes] = useState<Box[]>([]);
@@ -65,6 +68,7 @@ export function Packing() {
   /** When true, unknown products auto-use lockedSku — Associate SKU popup is skipped. */
   const [skuLocked, setSkuLocked] = useState(false);
   const [lockedSku, setLockedSku] = useState('');
+  const [sowNumberDraft, setSowNumberDraft] = useState('');
 
   const currentBox = boxes.find((b) => b.boxId === boxId);
   const currentPallet = pallets.find((p) => p.palletId === palletId);
@@ -79,6 +83,10 @@ export function Packing() {
   useEffect(() => {
     load().catch((err: Error) => toast.error(err.message));
   }, [load]);
+
+  useEffect(() => {
+    if (sow?.sowNumber) setSowNumberDraft(sow.sowNumber);
+  }, [sow?.sowNumber]);
 
   function focusProductInput() {
     requestAnimationFrame(() => productInput.current?.focus());
@@ -119,10 +127,87 @@ export function Packing() {
     });
   }
 
+  async function renameSowNumber() {
+    const next = sowNumberDraft.trim();
+    if (!sow || !next) {
+      toast.error('Enter a SOW number');
+      return;
+    }
+    if (next === sow.sowNumber) return;
+    setBusy(true);
+    try {
+      const data = await api<{ sow: Sow }>(`/api/sows/${sowId}/sow-number`, {
+        method: 'PATCH',
+        body: { sowNumber: next },
+      });
+      setSow(data.sow);
+      setSowNumberDraft(data.sow.sowNumber);
+      toast.success('SOW number updated');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Request failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function renameOuterBoxId() {
+    if (!currentBox) {
+      toast.error('Select an outer box to rename');
+      return;
+    }
+    const next = boxId.trim();
+    if (!next) {
+      toast.error('Enter a new Outer Box ID');
+      return;
+    }
+    if (next === currentBox.boxId) return;
+    setBusy(true);
+    try {
+      await api('/api/packing/boxes/rename', {
+        method: 'PATCH',
+        body: { sowId, oldBoxId: currentBox.boxId, newBoxId: next },
+      });
+      setBoxId(next);
+      await load();
+      toast.success('Outer Box ID updated');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Request failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function renamePalletIdValue() {
+    if (!currentPallet) {
+      toast.error('Select a pallet to rename');
+      return;
+    }
+    const next = palletId.trim();
+    if (!next) {
+      toast.error('Enter a new Pallet ID');
+      return;
+    }
+    if (next === currentPallet.palletId) return;
+    setBusy(true);
+    try {
+      await api('/api/packing/pallets/rename', {
+        method: 'PATCH',
+        body: { sowId, oldPalletId: currentPallet.palletId, newPalletId: next },
+      });
+      setPalletId(next);
+      await load();
+      toast.success('Pallet ID updated');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Request failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function ensureBox(id?: string) {
     const next = (id || boxId).trim();
     if (!next) {
-      toast.error('Enter or scan a Box ID');
+      toast.error('Enter or scan an Outer Box ID');
       return null;
     }
     const data = await api<{ box: Box }>('/api/packing/boxes', {
@@ -420,8 +505,8 @@ export function Packing() {
       return {
         tone: 'blocked' as const,
         text: palletMode
-          ? `Scan or enter a Box ID for pallet ${palletId}`
-          : 'Step 1 — Scan or enter a Box ID to start',
+          ? `Scan or enter an Outer Box ID for pallet ${palletId}`
+          : 'Step 1 — Scan or enter an Outer Box ID to start',
       };
     }
     if (nextStep === 'pallet') {
@@ -508,7 +593,18 @@ export function Packing() {
           </span>
         </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <InfoItem label="SOW Number" value={sow.sowNumber} mono />
+          {isAdmin ? (
+            <EditableInfoItem
+              label="SOW Number"
+              value={sowNumberDraft}
+              onChange={setSowNumberDraft}
+              onSave={renameSowNumber}
+              canSave={sowNumberDraft.trim() !== sow.sowNumber && !busy}
+              mono
+            />
+          ) : (
+            <InfoItem label="SOW Number" value={sow.sowNumber} mono />
+          )}
           <InfoItem label="PO Number" value={sow.poNumber} mono />
           <InfoItem label="Client ID" value={sow.clientCode} />
           <InfoItem label="Batch NO" value={sow.batchNo} />
@@ -576,14 +672,14 @@ export function Packing() {
               <div>
                 <h3 className="font-semibold text-slate-800">Box scanning</h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Scan or enter a Box ID. Select a box below to pack and view its products.
+                  Scan or enter an Outer Box ID. Select a box below to pack and view its products.
                 </p>
               </div>
 
               <ContainerField
                 step={1}
                 active={nextStep === 'box'}
-                title="Box ID"
+                title="Outer Box ID"
                 value={boxId}
                 onChange={setBoxId}
                 onCommit={() => ensureBox().catch((e: Error) => toast.error(e.message))}
@@ -591,6 +687,15 @@ export function Packing() {
                 meter={currentBox ? capacityMeter(boxFill, boxCapacity) : '—/—'}
                 fill={currentBox ? capacityFillRatio(boxFill, boxCapacity) : 0}
                 disabled={readOnly}
+                inputDisabled={readOnly && !isAdmin}
+                renameEnabled={
+                  isAdmin &&
+                  Boolean(currentBox) &&
+                  boxId.trim() !== '' &&
+                  boxId.trim() !== currentBox?.boxId
+                }
+                onRename={() => renameOuterBoxId().catch((e: Error) => toast.error(e.message))}
+                renameBusy={busy}
               />
 
               {boxes.length > 0 && (
@@ -669,6 +774,15 @@ export function Packing() {
                 meter={hasPallet ? `${palletFill}/50` : '—/50'}
                 fill={hasPallet ? palletFill / 50 : 0}
                 disabled={readOnly}
+                inputDisabled={readOnly && !isAdmin}
+                renameEnabled={
+                  isAdmin &&
+                  Boolean(currentPallet) &&
+                  palletId.trim() !== '' &&
+                  palletId.trim() !== currentPallet?.palletId
+                }
+                onRename={() => renamePalletIdValue().catch((e: Error) => toast.error(e.message))}
+                renameBusy={busy}
               />
 
               {pallets.length > 0 && (
@@ -708,7 +822,7 @@ export function Packing() {
                   <ContainerField
                     step={2}
                     active={nextStep === 'box'}
-                    title="Box ID"
+                    title="Outer Box ID"
                     value={boxId}
                     onChange={setBoxId}
                     onCommit={() => ensureBox().catch((e: Error) => toast.error(e.message))}
@@ -716,6 +830,15 @@ export function Packing() {
                     meter={currentBox ? capacityMeter(boxFill, boxCapacity) : '—/—'}
                     fill={currentBox ? capacityFillRatio(boxFill, boxCapacity) : 0}
                     disabled={readOnly}
+                    inputDisabled={readOnly && !isAdmin}
+                    renameEnabled={
+                      isAdmin &&
+                      Boolean(currentBox) &&
+                      boxId.trim() !== '' &&
+                      boxId.trim() !== currentBox?.boxId
+                    }
+                    onRename={() => renameOuterBoxId().catch((e: Error) => toast.error(e.message))}
+                    renameBusy={busy}
                   />
 
                   <div>
@@ -756,7 +879,7 @@ export function Packing() {
                         })}
                         {boxesOnPallet.length === 0 && (
                           <li className="px-3 py-4 text-center text-xs text-slate-400">
-                            No boxes on this pallet yet — scan a Box ID above.
+                            No boxes on this pallet yet — scan an Outer Box ID above.
                           </li>
                         )}
                       </ul>
@@ -881,7 +1004,7 @@ export function Packing() {
               <th className="px-4 py-2 font-medium">Product ID</th>
               <th className="px-4 py-2 font-medium">Product Name</th>
               <th className="px-4 py-2 font-medium whitespace-nowrap">Packed at</th>
-              <th className="px-4 py-2 font-medium">BOX ID</th>
+              <th className="px-4 py-2 font-medium">Outer Box ID</th>
               {!boxOnly && <th className="px-4 py-2 font-medium">Pallet ID</th>}
             </tr>
           </thead>
@@ -892,14 +1015,14 @@ export function Packing() {
                   {palletMode && !hasPallet
                     ? 'Scan a Pallet ID first.'
                     : boxId && !currentBox
-                      ? 'Scan or create this Box ID first.'
+                      ? 'Scan or create this Outer Box ID first.'
                       : currentBox
                         ? 'No products in this box yet. Scan products to fill it.'
                         : palletMode
                           ? `Select a box on ${palletId} to view products.`
                           : boxes.length
                             ? 'Select a box above to view its products.'
-                            : 'Scan a Box ID, then scan products.'}
+                            : 'Scan an Outer Box ID, then scan products.'}
                 </td>
               </tr>
             )}
@@ -960,6 +1083,52 @@ export function Packing() {
   );
 }
 
+function EditableInfoItem({
+  label,
+  value,
+  onChange,
+  onSave,
+  canSave,
+  mono,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onSave: () => void;
+  canSave: boolean;
+  mono?: boolean;
+}) {
+  return (
+    <div className="rounded-xl bg-slate-50 border px-3 py-2.5">
+      <div className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">{label}</div>
+      <div className="mt-1.5 flex gap-2">
+        <input
+          className={`flex-1 min-w-0 rounded-lg border bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-900 ${
+            mono ? 'font-mono' : ''
+          }`}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              if (canSave) onSave();
+            }
+          }}
+        />
+        <button
+          type="button"
+          disabled={!canSave}
+          onClick={onSave}
+          className="shrink-0 rounded-lg bg-slate-800 px-2.5 text-white disabled:opacity-40"
+          title="Save SOW number"
+        >
+          <Save size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function InfoItem({
   label,
   value,
@@ -1000,6 +1169,10 @@ function ContainerField({
   meter,
   fill,
   disabled,
+  inputDisabled,
+  renameEnabled,
+  onRename,
+  renameBusy,
 }: {
   step: number;
   active: boolean;
@@ -1011,7 +1184,12 @@ function ContainerField({
   meter: string;
   fill: number;
   disabled?: boolean;
+  inputDisabled?: boolean;
+  renameEnabled?: boolean;
+  onRename?: () => void;
+  renameBusy?: boolean;
 }) {
+  const fieldDisabled = inputDisabled ?? disabled;
   return (
     <div
       className={`rounded-xl border bg-white p-3 ${
@@ -1030,18 +1208,30 @@ function ContainerField({
       </div>
       <div className="mt-2 flex gap-1.5">
         <input
-          disabled={disabled}
+          disabled={fieldDisabled}
           className="flex-1 min-w-0 rounded-lg border px-2.5 py-1.5 font-mono text-sm"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
-              onCommit();
+              if (renameEnabled && onRename) onRename();
+              else if (!disabled) onCommit();
             }
           }}
           placeholder={title}
         />
+        {renameEnabled && onRename && (
+          <button
+            type="button"
+            disabled={renameBusy}
+            onClick={onRename}
+            className="rounded-lg bg-blue-600 px-2.5 text-white disabled:opacity-50"
+            title={`Save ${title}`}
+          >
+            <Save size={16} />
+          </button>
+        )}
         <button
           type="button"
           disabled={disabled}
@@ -1090,7 +1280,7 @@ function ProductScanBar({
   targetsMet?: boolean;
 }) {
   const placeholder = needsBox
-    ? 'Set a Box ID first…'
+    ? 'Set an Outer Box ID first…'
     : targetsMet
       ? 'SOW targets met'
       : boxCompleted
