@@ -5,6 +5,21 @@ import { authRequired, requireRole } from '../middleware/auth.js';
 
 export const logsRouter = Router();
 
+const PACKING_ACTION_TYPES = [
+  'PACKING_COMPLETE',
+  'PACKING_UNCOMPLETE',
+  'PACKING_SAVE',
+  'PRODUCT_SCAN',
+  'BOX_COMPLETE',
+  'BOX_CREATE',
+  'BOX_RENAME',
+  'PALLET_CREATE',
+  'PALLET_RENAME',
+  'BOX_LINK_PALLET',
+  'BOX_UNLINK_PALLET',
+  'SOW_RENAME',
+] as const;
+
 logsRouter.use(authRequired, requireRole('admin'));
 
 logsRouter.get('/', async (req: Request, res: Response) => {
@@ -12,9 +27,7 @@ logsRouter.get('/', async (req: Request, res: Response) => {
   const filter: FilterQuery<IAuditLog> = {};
   if (actionType) filter.actionType = actionType as string;
   if (packingOnly === 'true') {
-    filter.actionType = {
-      $in: ['PACKING_COMPLETE', 'PRODUCT_SCAN', 'BOX_COMPLETE', 'BOX_CREATE', 'PALLET_CREATE', 'BOX_LINK_PALLET'],
-    };
+    filter.actionType = { $in: [...PACKING_ACTION_TYPES] };
   }
   const logs = await AuditLog.find(filter)
     .sort({ timestamp: -1 })

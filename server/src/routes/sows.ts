@@ -463,6 +463,7 @@ sowsRouter.patch('/:id/sow-number', requireRole('admin'), async (req: Request, r
 
   await writeAudit(req.user!._id, 'SOW_RENAME', {
     sowId: sow._id,
+    poNumber: sow.poNumber,
     previous,
     sowNumber,
   });

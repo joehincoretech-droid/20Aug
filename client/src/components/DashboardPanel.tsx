@@ -38,15 +38,14 @@ const CARD_CLASS =
   'rounded-2xl bg-white shadow-[0_4px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-100';
 
 type KpiAccent = 'amber' | 'emerald' | 'slate';
-type SparkVariant = 'up' | 'down' | 'neutral';
 
 interface KpiItem {
   label: string;
   value: string | number;
-  sub?: string;
   accent?: KpiAccent;
-  trendLabel?: string;
-  spark?: SparkVariant;
+  statusText?: string;
+  progressPct?: number;
+  showDonut?: boolean;
 }
 
 function chunkRows<T>(items: T[], size: number): T[][] {
@@ -57,48 +56,97 @@ function chunkRows<T>(items: T[], size: number): T[][] {
   return rows;
 }
 
-function MiniSparkline({ variant }: { variant: SparkVariant }) {
-  const stroke =
-    variant === 'up' ? '#22c55e' : variant === 'down' ? '#ef4444' : '#cbd5e1';
-  const path =
-    variant === 'up'
-      ? 'M0,18 L18,14 L36,15 L54,9 L72,10 L90,5'
-      : variant === 'down'
-        ? 'M0,6 L18,9 L36,8 L54,14 L72,12 L90,18'
-        : 'M0,12 L18,11 L36,13 L54,12 L72,11 L90,12';
-
+function KpiStatusChip({ text, accent = 'slate' }: { text: string; accent?: KpiAccent }) {
+  const className =
+    accent === 'emerald'
+      ? 'bg-emerald-50 text-emerald-700 ring-emerald-100'
+      : accent === 'amber'
+        ? 'bg-amber-50 text-amber-800 ring-amber-100'
+        : 'bg-slate-50 text-slate-600 ring-slate-100';
   return (
-    <svg viewBox="0 0 90 22" className="h-7 w-[72px]" preserveAspectRatio="none" aria-hidden>
-      <path d={path} fill="none" stroke={stroke} strokeWidth="2" strokeLinecap="round" />
-    </svg>
+    <span
+      className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${className}`}
+    >
+      {text}
+    </span>
   );
 }
 
-function KpiTile({ label, value, trendLabel, spark = 'neutral', accent = 'slate' }: KpiItem) {
-  const trendClass =
-    accent === 'emerald'
-      ? 'text-emerald-500'
-      : accent === 'amber'
-        ? 'text-amber-500'
-        : 'text-slate-400';
-  const arrow = spark === 'up' ? '↑' : spark === 'down' ? '↓' : '•';
-
+function KpiProgressBar({ pct, accent = 'slate' }: { pct: number; accent?: KpiAccent }) {
+  const fillClass =
+    accent === 'emerald' ? 'bg-emerald-500' : accent === 'amber' ? 'bg-amber-500' : 'bg-slate-400';
   return (
-    <div className="flex min-h-[132px] flex-col justify-between px-6 py-5 sm:px-7 sm:py-6">
+    <div className="h-1 w-full max-w-[140px] rounded-full bg-slate-100 overflow-hidden">
+      <div
+        className={`h-full rounded-full transition-all ${fillClass}`}
+        style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+      />
+    </div>
+  );
+}
+
+function KpiMiniDonut({ pct, accent = 'slate' }: { pct: number; accent?: KpiAccent }) {
+  const fill = accent === 'emerald' ? '#10b981' : accent === 'amber' ? '#f59e0b' : '#64748b';
+  const clamped = Math.min(100, Math.max(0, pct));
+  const data = [
+    { name: 'filled', value: clamped },
+    { name: 'remaining', value: 100 - clamped },
+  ];
+  return (
+    <div className="relative h-12 w-12 shrink-0">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie
+            data={data}
+            dataKey="value"
+            cx="50%"
+            cy="50%"
+            innerRadius={14}
+            outerRadius={22}
+            startAngle={90}
+            endAngle={-270}
+            stroke="none"
+          >
+            <Cell fill={fill} />
+            <Cell fill="#f1f5f9" />
+          </Pie>
+        </PieChart>
+      </ResponsiveContainer>
+      <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold tabular-nums text-slate-700">
+        {clamped}%
+      </span>
+    </div>
+  );
+}
+
+function KpiTile({
+  label,
+  value,
+  statusText,
+  progressPct,
+  showDonut,
+  accent = 'slate',
+}: KpiItem) {
+  return (
+    <div className="flex min-h-[120px] flex-col justify-between px-6 py-5 sm:px-7 sm:py-6">
       <div className="text-xs font-medium text-slate-400">{label}</div>
-      <div className="mt-4 flex items-end justify-between gap-4">
-        <div className="text-3xl font-bold tabular-nums tracking-tight text-slate-900 sm:text-[2rem]">
-          {value}
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-1.5">
-          {trendLabel && (
-            <span className={`flex items-center gap-0.5 text-xs font-semibold ${trendClass}`}>
-              <span aria-hidden>{arrow}</span>
-              {trendLabel}
-            </span>
+      <div className="mt-3 flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="text-3xl font-bold tabular-nums tracking-tight text-slate-900 sm:text-[2rem]">
+            {value}
+          </div>
+          {statusText && (
+            <div className="mt-2">
+              <KpiStatusChip text={statusText} accent={accent} />
+            </div>
           )}
-          <MiniSparkline variant={spark} />
+          {progressPct != null && !showDonut && (
+            <div className="mt-2.5">
+              <KpiProgressBar pct={progressPct} accent={accent} />
+            </div>
+          )}
         </div>
+        {showDonut && progressPct != null && <KpiMiniDonut pct={progressPct} accent={accent} />}
       </div>
     </div>
   );
@@ -126,6 +174,108 @@ function KpiPanel({ items }: { items: KpiItem[] }) {
           ))}
         </div>
       ))}
+    </div>
+  );
+}
+
+function PoStatusPanel({
+  openPos,
+  fulfilledPos,
+  slices,
+}: {
+  openPos: number;
+  fulfilledPos: number;
+  slices: DashboardStats['poStatusSlices'];
+}) {
+  const total = openPos + fulfilledPos;
+  const shareProgress = (part: number) => (total > 0 ? Math.round((part / total) * 100) : undefined);
+  const statusOfTotal = (part: number) => (total > 0 ? `${part} of ${total} total` : undefined);
+
+  return (
+    <div className={CARD_CLASS}>
+      <div className="border-b border-slate-100 px-6 py-4 sm:px-7">
+        <h3 className="text-base font-semibold text-slate-800">Purchase order status</h3>
+      </div>
+      {total === 0 ? (
+        <p className="px-6 py-16 text-center text-sm text-slate-400 sm:px-7">
+          No purchase orders recorded yet.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_minmax(220px,32%)]">
+          <KpiTile
+            label="Open purchase orders"
+            value={openPos}
+            accent="amber"
+            statusText={statusOfTotal(openPos)}
+            progressPct={shareProgress(openPos)}
+          />
+          <div className="border-t border-slate-100 lg:border-t-0 lg:border-l lg:border-slate-100">
+            <KpiTile
+              label="Fulfilled purchase orders"
+              value={fulfilledPos}
+              accent="emerald"
+              statusText={statusOfTotal(fulfilledPos)}
+              progressPct={shareProgress(fulfilledPos)}
+            />
+          </div>
+          <div className="border-t border-slate-100 lg:border-t-0 lg:border-l lg:border-slate-100 px-4 py-4 sm:px-5">
+            <div className="h-[220px]">
+              <PieWidget slices={slices} innerRadius={58} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SowStatusPanel({
+  activeSows,
+  completedSows,
+  slices,
+}: {
+  activeSows: number;
+  completedSows: number;
+  slices: DashboardStats['sowStatusSlices'];
+}) {
+  const total = activeSows + completedSows;
+  const shareProgress = (part: number) => (total > 0 ? Math.round((part / total) * 100) : undefined);
+  const statusOfTotal = (part: number) => (total > 0 ? `${part} of ${total} total` : undefined);
+
+  return (
+    <div className={CARD_CLASS}>
+      <div className="border-b border-slate-100 px-6 py-4 sm:px-7">
+        <h3 className="text-base font-semibold text-slate-800">Shipment order status</h3>
+      </div>
+      {total === 0 ? (
+        <p className="px-6 py-16 text-center text-sm text-slate-400 sm:px-7">
+          No shipment orders recorded yet.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_minmax(220px,32%)]">
+          <KpiTile
+            label="Active shipment orders"
+            value={activeSows}
+            accent="amber"
+            statusText={statusOfTotal(activeSows)}
+            progressPct={shareProgress(activeSows)}
+          />
+          <div className="border-t border-slate-100 lg:border-t-0 lg:border-l lg:border-slate-100">
+            <KpiTile
+              label="Completed shipment orders"
+              value={completedSows}
+              accent="emerald"
+              statusText={statusOfTotal(completedSows)}
+              progressPct={shareProgress(completedSows)}
+            />
+          </div>
+          <div className="border-t border-slate-100 lg:border-t-0 lg:border-l lg:border-slate-100 px-4 py-4 sm:px-5">
+            <div className="h-[220px]">
+              <PieWidget slices={slices} innerRadius={58} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -287,65 +437,15 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
     (showPo && (kpis.openPos + kpis.fulfilledPos > 0)) ||
     (showSow && (kpis.activeSows + kpis.completedSows > 0));
 
-  const poTotal = kpis.openPos + kpis.fulfilledPos;
-  const sowTotal = kpis.activeSows + kpis.completedSows;
-  const sharePct = (part: number, total: number) => (total > 0 ? `${Math.round((part / total) * 100)}%` : undefined);
-
   const kpiItems: KpiItem[] = [];
-  if (showPo) {
-    kpiItems.push(
-      {
-        label: 'Open purchase orders',
-        value: kpis.openPos,
-        accent: 'amber',
-        trendLabel: sharePct(kpis.openPos, poTotal),
-        spark: 'neutral',
-      },
-      {
-        label: 'Fulfilled purchase orders',
-        value: kpis.fulfilledPos,
-        accent: 'emerald',
-        trendLabel: sharePct(kpis.fulfilledPos, poTotal),
-        spark: 'up',
-      }
-    );
-  }
-  if (showSow) {
-    kpiItems.push(
-      {
-        label: 'Active shipment orders',
-        value: kpis.activeSows,
-        accent: 'amber',
-        trendLabel: sharePct(kpis.activeSows, sowTotal),
-        spark: 'neutral',
-      },
-      {
-        label: 'Completed shipment orders',
-        value: kpis.completedSows,
-        accent: 'emerald',
-        trendLabel: sharePct(kpis.completedSows, sowTotal),
-        spark: 'up',
-      },
-      {
-        label: 'Units packed',
-        value: kpis.productsPacked.toLocaleString(),
-        trendLabel: kpis.fulfillmentPct != null ? `${kpis.fulfillmentPct}% filled` : undefined,
-        spark: kpis.fulfillmentPct != null && kpis.fulfillmentPct >= 100 ? 'up' : 'neutral',
-      },
-      {
-        label: 'Cartons packed',
-        value: kpis.boxesPacked.toLocaleString(),
-        spark: 'neutral',
-      }
-    );
-  }
   if (kpis.fulfillmentPct != null) {
     kpiItems.push({
       label: 'Fulfillment rate',
       value: `${kpis.fulfillmentPct}%`,
       accent: kpis.fulfillmentPct >= 100 ? 'emerald' : 'amber',
-      trendLabel: kpis.fulfillmentPct >= 100 ? 'Target met' : 'In progress',
-      spark: kpis.fulfillmentPct >= 100 ? 'up' : 'down',
+      statusText: kpis.fulfillmentPct >= 100 ? 'Target met' : 'In progress',
+      progressPct: kpis.fulfillmentPct,
+      showDonut: true,
     });
   }
 
@@ -421,33 +521,37 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
 
       <section>
         <SectionHeading
-          title="Key performance indicators"
-          description="Summary metrics for current warehouse activity."
+          title="Key performance indicators & operational analytics"
+          description="Summary metrics, status distribution, and packing analysis."
         />
-        <KpiPanel items={kpiItems} />
-      </section>
-
-      <section>
-        <SectionHeading title="Operational analytics" description="Status distribution and throughput analysis." />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-4">
           {showPo && (
-            <ChartCard title="Purchase order status" empty={stats.poStatusSlices.length === 0}>
-              <PieWidget slices={stats.poStatusSlices} />
-            </ChartCard>
+            <PoStatusPanel
+              openPos={kpis.openPos}
+              fulfilledPos={kpis.fulfilledPos}
+              slices={stats.poStatusSlices}
+            />
           )}
           {showSow && (
-            <>
-              <ChartCard title="Shipment order status" empty={stats.sowStatusSlices.length === 0}>
-                <PieWidget slices={stats.sowStatusSlices} />
-              </ChartCard>
-              <ChartCard title="Active fulfillment progress" empty={stats.progressSlices.length === 0}>
-                <PieWidget slices={stats.progressSlices} innerRadius={55} />
-              </ChartCard>
-              <ChartCard title="Packing configuration mix" empty={stats.packingTypeSlices.length === 0}>
-                <PieWidget slices={stats.packingTypeSlices} />
-              </ChartCard>
-            </>
+            <SowStatusPanel
+              activeSows={kpis.activeSows}
+              completedSows={kpis.completedSows}
+              slices={stats.sowStatusSlices}
+            />
           )}
+          <KpiPanel items={kpiItems} />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {showSow && (
+              <>
+                <ChartCard title="Active fulfillment progress" empty={stats.progressSlices.length === 0}>
+                  <PieWidget slices={stats.progressSlices} innerRadius={55} />
+                </ChartCard>
+                <ChartCard title="Packing configuration mix" empty={stats.packingTypeSlices.length === 0}>
+                  <PieWidget slices={stats.packingTypeSlices} />
+                </ChartCard>
+              </>
+            )}
+          </div>
         </div>
       </section>
 

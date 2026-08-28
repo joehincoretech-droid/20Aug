@@ -334,6 +334,8 @@ packingRouter.patch('/boxes/rename', requireRole('admin'), async (req: Request, 
 
   await writeAudit(req.user!._id, 'BOX_RENAME', {
     sowId: sow._id,
+    sowNumber: sow.sowNumber,
+    poNumber: sow.poNumber,
     previous: trimmedOld,
     boxId: trimmedNew,
   });
@@ -383,6 +385,8 @@ packingRouter.patch('/pallets/rename', requireRole('admin'), async (req: Request
 
   await writeAudit(req.user!._id, 'PALLET_RENAME', {
     sowId: sow._id,
+    sowNumber: sow.sowNumber,
+    poNumber: sow.poNumber,
     previous: trimmedOld,
     palletId: trimmedNew,
   });
