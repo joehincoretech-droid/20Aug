@@ -41,7 +41,7 @@ interface SowForm {
   selectedSKUs: string[];
 }
 
-export function Dashboard() {
+export function SOW() {
   const navigate = useNavigate();
   const [sows, setSows] = useState<Sow[]>([]);
   const [open, setOpen] = useState(false);
@@ -316,7 +316,7 @@ export function Dashboard() {
     <div className="p-4 md:p-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">SOW Dashboard</h1>
+          <h1 className="text-2xl font-semibold">SOW Dashoard</h1>
           <p className="text-slate-500 mt-1">Create a statement of work and start packing.</p>
         </div>
         <button

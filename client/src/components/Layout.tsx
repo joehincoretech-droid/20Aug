@@ -62,7 +62,7 @@ export function Layout() {
         <nav className="p-3 flex-1 space-y-1">
           {(user?.role === 'admin' || user?.role === 'worker') && (
             <NavLink to="/" end className={linkClass} onClick={closeDrawer}>
-              <LayoutDashboard size={16} /> Dashboard
+              <LayoutDashboard size={16} /> SOW Dashboard
             </NavLink>
           )}
           {(user?.role === 'admin' || user?.role === 'po') && (

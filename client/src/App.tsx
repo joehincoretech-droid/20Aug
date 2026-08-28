@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { useAuth } from './context/AuthContext';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
-import { Dashboard } from './pages/Dashboard';
+import { SOW } from './pages/SOW';
 import { Packing } from './pages/Packing';
 import { Users } from './pages/Users';
 import { Logs } from './pages/Logs';
@@ -30,7 +30,7 @@ function Guard({ children, roles }: { children: ReactNode; roles?: UserRole[] })
 function HomeRedirect() {
   const { user } = useAuth();
   if (user?.role === 'po') return <Navigate to="/pos" replace />;
-  return <Dashboard />;
+  return <SOW />;
 }
 
 export default function App() {
