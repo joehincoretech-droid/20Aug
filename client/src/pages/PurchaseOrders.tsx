@@ -52,6 +52,72 @@ function PoStatusBadge({ status }: { status: 'open' | 'fulfilled' }) {
   );
 }
 
+type ProductOrderLine = { productName: string; qty: number; sku?: string };
+
+function parseProductOrderLines(
+  items?: ProductOrderLine[],
+  productOrder?: string
+): ProductOrderLine[] {
+  if (items?.length) {
+    return items.map((i) => ({
+      productName: i.productName,
+      qty: i.qty,
+      sku: i.sku,
+    }));
+  }
+  if (!productOrder?.trim()) return [];
+  return productOrder
+    .split(/[,，]/)
+    .map((part) => {
+      const trimmed = part.trim();
+      if (!trimmed) return null;
+      const match = trimmed.match(/^(.+?)\*(\d+)$/);
+      if (match) {
+        return { productName: match[1].trim(), qty: Number(match[2]) };
+      }
+      return { productName: trimmed, qty: 0 };
+    })
+    .filter((row): row is ProductOrderLine => row != null);
+}
+
+function ProductOrderList({
+  items,
+  productOrder,
+  compact,
+}: {
+  items?: ProductOrderLine[];
+  productOrder?: string;
+  compact?: boolean;
+}) {
+  const rows = parseProductOrderLines(items, productOrder);
+  if (!rows.length) {
+    return <span className="text-slate-400">—</span>;
+  }
+
+  return (
+    <ul className={compact ? 'space-y-1' : 'space-y-1.5'}>
+      {rows.map((row, index) => (
+        <li
+          key={`${row.sku || row.productName}-${index}`}
+          className={`flex items-baseline justify-between gap-3 border-b border-slate-100 pb-1 last:border-b-0 last:pb-0 ${
+            compact ? 'text-xs' : 'text-sm'
+          }`}
+        >
+          <div className="min-w-0">
+            <div className="font-medium text-slate-800 truncate">{row.productName}</div>
+            {row.sku && (
+              <div className="font-mono text-[10px] text-slate-400 truncate">{row.sku}</div>
+            )}
+          </div>
+          <span className="shrink-0 font-semibold tabular-nums text-slate-700 whitespace-nowrap">
+            ×{row.qty} (inner Box)
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function SortHeader({
   label,
   column,
@@ -324,7 +390,10 @@ export function PurchaseOrders() {
     [skuOptions, qtys]
   );
 
-  const productOrderPreview = lines.map((l) => `${l.name}*${l.qty}`).join('，');
+  const productOrderLines = useMemo(
+    () => lines.map((l) => ({ productName: l.name, sku: l.sku, qty: l.qty })),
+    [lines]
+  );
 
   async function createPo(e: FormEvent) {
     e.preventDefault();
@@ -454,7 +523,9 @@ export function PurchaseOrders() {
                 >
                   <td className="px-4 py-3 font-mono font-medium">{order.poNumber}</td>
                   <td className="px-4 py-3">{order.clientCode}</td>
-                  <td className="px-4 py-3">{order.productOrder || '—'}</td>
+                  <td className="px-4 py-3 min-w-[180px]">
+                    <ProductOrderList items={order.items} productOrder={order.productOrder} compact />
+                  </td>
                   <td className="px-4 py-3 min-w-[140px]">
                     <div className="font-medium">
                       {scanned}/{ordered}
@@ -676,12 +747,14 @@ export function PurchaseOrders() {
               </label>
             </div>
 
-            {detail.productOrder && (
-              <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-sm">
+            {(detail.items?.length || detail.productOrder) && (
+              <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2">
                 <div className="text-xs uppercase tracking-wide text-amber-700 font-medium">
-                  Producted order
+                  Product order
                 </div>
-                <div className="mt-0.5 font-medium">{detail.productOrder}</div>
+                <div className="mt-2">
+                  <ProductOrderList items={detail.items} productOrder={detail.productOrder} />
+                </div>
               </div>
             )}
 
@@ -882,12 +955,14 @@ export function PurchaseOrders() {
                   </div>
                 ))}
               </div>
-              {productOrderPreview && (
-                <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm">
+              {productOrderLines.length > 0 && (
+                <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
                   <span className="text-xs uppercase tracking-wide text-amber-700 font-medium">
                     Preview
                   </span>
-                  <div className="mt-0.5 font-medium">{productOrderPreview}</div>
+                  <div className="mt-2">
+                    <ProductOrderList items={productOrderLines} />
+                  </div>
                 </div>
               )}
             </div>
