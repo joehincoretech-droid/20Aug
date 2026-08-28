@@ -24,5 +24,4 @@ export type IBox = InferSchemaType<typeof boxSchema>;
 export type BoxDocument = HydratedDocument<IBox>;
 export type PackedProduct = InferSchemaType<typeof packedProductSchema>;
 
-export const BOX_PRODUCT_LIMIT = 30;
 export const Box = mongoose.model('Box', boxSchema);

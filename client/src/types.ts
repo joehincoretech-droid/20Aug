@@ -14,6 +14,7 @@ export interface User {
 export interface SkuLabel {
   sku: string;
   productName: string;
+  boxesPerOuterBox?: number;
 }
 
 export type SowStatus = 'draft' | 'in_progress' | 'packing' | 'completed' | string;
@@ -79,6 +80,7 @@ export interface ProductName {
   _id: string;
   sku: string;
   name: string;
+  boxesPerOuterBox: number;
 }
 
 export interface AuditLog {

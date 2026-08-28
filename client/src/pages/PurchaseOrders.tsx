@@ -15,6 +15,7 @@ import { api } from '../api';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import type { ProductName, PurchaseOrder, Sow } from '../types';
+import { formatDateTime } from '../utils/date';
 
 const TYPES: Array<{ id: 1 | 2 | 3; title: string; icons: LucideIcon[] }> = [
   { id: 1, title: 'Only box', icons: [Package] },
@@ -470,7 +471,7 @@ export function PurchaseOrders() {
                     <PoStatusBadge status={status} />
                   </td>
                   <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
-                    {new Date(order.createdAt).toLocaleString()}
+                    {formatDateTime(order.createdAt)}
                   </td>
                   <td className="px-4 py-3">{order.createdBy?.username || '—'}</td>
                 </tr>

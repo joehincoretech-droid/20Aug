@@ -57,15 +57,25 @@ async function nextSowNumber(poNumber: string): Promise<string> {
   return `SOW-${suffix}/${String(max + 1).padStart(4, '0')}`;
 }
 
-async function skuNameMap(): Promise<Map<string, string>> {
+async function skuOptionMaps(): Promise<{
+  namesBySku: Map<string, string>;
+  capacityBySku: Map<string, number>;
+}> {
   const options = await ProductNameOption.find();
-  return new Map(options.map((o) => [o.sku, o.name]));
+  return {
+    namesBySku: new Map(options.map((o) => [o.sku, o.name])),
+    capacityBySku: new Map(
+      options
+        .filter((o) => o.boxesPerOuterBox != null && o.boxesPerOuterBox >= 1)
+        .map((o) => [o.sku, o.boxesPerOuterBox])
+    ),
+  };
 }
 
 async function withTotals(sows: SowDocument[]) {
   const ids = sows.map((s) => s._id);
   const boxes = await Box.find({ sowId: { $in: ids } });
-  const namesBySku = await skuNameMap();
+  const { namesBySku, capacityBySku } = await skuOptionMaps();
   const bySow = new Map<string, { totalAmount: number; boxCount: number; bySku: Map<string, number> }>();
   for (const box of boxes) {
     const key = String(box.sowId);
@@ -98,6 +108,7 @@ async function withTotals(sows: SowDocument[]) {
     const selectedSKULabels = (sow.selectedSKUs || []).map((sku) => ({
       sku,
       productName: namesBySku.get(sku) || sku,
+      boxesPerOuterBox: capacityBySku.get(sku),
     }));
     const po = poByNumber.get(sow.poNumber);
     const poItems = po?.items || [];

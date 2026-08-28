@@ -4,6 +4,7 @@ const productNameOptionSchema = new mongoose.Schema(
   {
     sku: { type: String, required: true, unique: true, trim: true },
     name: { type: String, required: true, unique: true, trim: true },
+    boxesPerOuterBox: { type: Number, required: true, min: 1 },
     sortOrder: { type: Number, default: 0 },
   },
   { timestamps: true }

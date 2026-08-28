@@ -8,6 +8,7 @@ import {
   PASSWORD_REQUIREMENTS,
   validatePassword,
 } from '../utils/password';
+import { formatDateTime } from '../utils/date';
 
 type UserForm = { username: string; password: string; confirmPassword: string; role: UserRole };
 
@@ -170,7 +171,7 @@ export function Users() {
                     {u.role}
                   </td>
                   <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
-                    {u.createdAt ? new Date(u.createdAt).toLocaleString() : '—'}
+                    {formatDateTime(u.createdAt)}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <div className="flex items-center justify-end gap-3">

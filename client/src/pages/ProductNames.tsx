@@ -5,14 +5,18 @@ import { api } from '../api';
 import { Modal } from '../components/Modal';
 import type { ProductName } from '../types';
 
-type SkuSortKey = 'sku' | 'name';
+type SkuSortKey = 'sku' | 'name' | 'boxesPerOuterBox';
 type SortDir = 'asc' | 'desc';
+
+type ProductNameForm = { sku: string; name: string; boxesPerOuterBox: string };
+
+const EMPTY_FORM: ProductNameForm = { sku: '', name: '', boxesPerOuterBox: '' };
 
 export function ProductNames() {
   const [names, setNames] = useState<ProductName[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ProductName | null>(null);
-  const [form, setForm] = useState({ sku: '', name: '' });
+  const [form, setForm] = useState<ProductNameForm>(EMPTY_FORM);
   const [sortKey, setSortKey] = useState<SkuSortKey>('sku');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
@@ -37,10 +41,14 @@ export function ProductNames() {
   const sortedNames = useMemo(() => {
     const list = [...names];
     list.sort((a, b) => {
-      const cmp =
-        sortKey === 'sku'
-          ? (a.sku || '').localeCompare(b.sku || '')
-          : (a.name || '').localeCompare(b.name || '');
+      let cmp = 0;
+      if (sortKey === 'sku') {
+        cmp = (a.sku || '').localeCompare(b.sku || '');
+      } else if (sortKey === 'name') {
+        cmp = (a.name || '').localeCompare(b.name || '');
+      } else {
+        cmp = (a.boxesPerOuterBox ?? 0) - (b.boxesPerOuterBox ?? 0);
+      }
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return list;
@@ -48,37 +56,50 @@ export function ProductNames() {
 
   function openCreate() {
     setEditing(null);
-    setForm({ sku: '', name: '' });
+    setForm(EMPTY_FORM);
     setOpen(true);
   }
 
   function openEdit(item: ProductName) {
     setEditing(item);
-    setForm({ sku: item.sku || '', name: item.name });
+    setForm({
+      sku: item.sku || '',
+      name: item.name,
+      boxesPerOuterBox: String(item.boxesPerOuterBox ?? ''),
+    });
     setOpen(true);
+  }
+
+  function parseCapacity(value: string): number | null {
+    const n = Number(value);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) return null;
+    return n;
   }
 
   async function save(e: FormEvent) {
     e.preventDefault();
     const sku = form.sku.trim();
     const name = form.name.trim();
+    const boxesPerOuterBox = parseCapacity(form.boxesPerOuterBox);
     if (!sku || !name) {
       toast.error('SKU and product name are required');
       return;
     }
+    if (boxesPerOuterBox === null) {
+      toast.error('Boxes per outer box must be a whole number of at least 1');
+      return;
+    }
     try {
+      const body = { sku, name, boxesPerOuterBox };
       if (editing) {
-        await api(`/api/product-names/${editing._id}`, {
-          method: 'PATCH',
-          body: { sku, name },
-        });
+        await api(`/api/product-names/${editing._id}`, { method: 'PATCH', body });
         toast.success('SKU / product name updated');
       } else {
-        await api('/api/product-names', { method: 'POST', body: { sku, name } });
+        await api('/api/product-names', { method: 'POST', body });
         toast.success('SKU / product name added');
       }
       setOpen(false);
-      setForm({ sku: '', name: '' });
+      setForm(EMPTY_FORM);
       setEditing(null);
       await load();
     } catch (err) {
@@ -126,7 +147,8 @@ export function ProductNames() {
         <div>
           <h1 className="text-2xl font-semibold">SKU / Product Names</h1>
           <p className="text-slate-500 mt-1">
-            Each SKU is linked to one product name. Used in Create SOW and packing.
+            Each SKU is linked to one product name and an outer-box capacity. Used in Create SOW and
+            packing.
           </p>
         </div>
         <button
@@ -137,50 +159,60 @@ export function ProductNames() {
         </button>
       </div>
       <div className="mt-6 bg-white rounded-2xl border overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-slate-500">
-            <tr>
-              <th className="px-4 py-3 font-medium">
-                <SortButton column="sku" label="SKU" />
-              </th>
-              <th className="px-4 py-3 font-medium">
-                <SortButton column="name" label="Product Name" />
-              </th>
-              <th className="px-4 py-3 font-medium w-40">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedNames.length === 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-sm">
+            <thead className="bg-slate-50 text-left text-slate-500">
               <tr>
-                <td colSpan={3} className="px-4 py-10 text-center text-slate-400">
-                  No items yet. Run seed or add one.
-                </td>
+                <th className="px-4 py-3 font-medium">
+                  <SortButton column="sku" label="SKU" />
+                </th>
+                <th className="px-4 py-3 font-medium">
+                  <SortButton column="name" label="Product Name" />
+                </th>
+                <th className="px-4 py-3 font-medium">
+                  <SortButton column="boxesPerOuterBox" label="Boxes / outer box" />
+                </th>
+                <th className="px-4 py-3 font-medium w-40">Actions</th>
               </tr>
-            )}
-            {sortedNames.map((item) => (
-              <tr key={item._id} className="border-t">
-                <td className="px-4 py-3 font-mono">{item.sku}</td>
-                <td className="px-4 py-3 font-medium">{item.name}</td>
-                <td className="px-4 py-3">
-                  <div className="flex gap-2">
-                    <button
-                      className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-50"
-                      onClick={() => openEdit(item)}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      className="rounded-lg border border-red-200 text-red-700 px-3 py-1 text-xs hover:bg-red-50"
-                      onClick={() => remove(item)}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {sortedNames.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-4 py-10 text-center text-slate-400">
+                    No items yet. Run seed or add one.
+                  </td>
+                </tr>
+              )}
+              {sortedNames.map((item) => (
+                <tr key={item._id} className="border-t">
+                  <td className="px-4 py-3 font-mono whitespace-nowrap">{item.sku}</td>
+                  <td className="px-4 py-3 font-medium">{item.name}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    {item.boxesPerOuterBox != null
+                      ? `${item.boxesPerOuterBox} Boxes/Outer Box`
+                      : '—'}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-2">
+                      <button
+                        className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-50"
+                        onClick={() => openEdit(item)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="rounded-lg border border-red-200 text-red-700 px-3 py-1 text-xs hover:bg-red-50"
+                        onClick={() => remove(item)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
       {open && (
         <Modal
@@ -206,6 +238,21 @@ export function ProductNames() {
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
               />
+            </label>
+            <label className="block text-sm">
+            Boxes/Outer Box
+              <input
+                type="number"
+                min={1}
+                step={1}
+                className="mt-1 w-full rounded-lg border px-3 py-2"
+                value={form.boxesPerOuterBox}
+                onChange={(e) => setForm({ ...form, boxesPerOuterBox: e.target.value })}
+                required
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                How many inner boxes fit in one outer box (required for packing).
+              </p>
             </label>
             <button className="rounded-lg bg-slate-950 text-white px-4 py-2">Save</button>
           </form>

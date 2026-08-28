@@ -8,11 +8,11 @@ import { PoClient } from './models/PoClient.js';
 import { PurchaseOrder } from './models/PurchaseOrder.js';
 
 const INITIAL_SKU_NAMES = [
-  { sku: 'SKU-A100', name: '雙黃白蓮蓉' },
-  { sku: 'SKU-B200', name: '奶黃' },
-  { sku: 'SKU-C300', name: '五仁' },
-  { sku: 'SKU-D400', name: '白蓮蓉' },
-  { sku: 'SKU-E500', name: '蓮蓉' },
+  { sku: 'SKU-A100', name: '雙黃白蓮蓉', boxesPerOuterBox: 12 },
+  { sku: 'SKU-B200', name: '奶黃', boxesPerOuterBox: 12 },
+  { sku: 'SKU-C300', name: '五仁', boxesPerOuterBox: 24 },
+  { sku: 'SKU-D400', name: '白蓮蓉', boxesPerOuterBox: 12 },
+  { sku: 'SKU-E500', name: '蓮蓉', boxesPerOuterBox: 24 },
 ];
 
 const SAMPLE_POS = [
@@ -68,7 +68,7 @@ async function run(): Promise<void> {
     const item = INITIAL_SKU_NAMES[i];
     await ProductNameOption.findOneAndUpdate(
       { sku: item.sku },
-      { sku: item.sku, name: item.name, sortOrder: i },
+      { sku: item.sku, name: item.name, boxesPerOuterBox: item.boxesPerOuterBox, sortOrder: i },
       { upsert: true }
     );
   }

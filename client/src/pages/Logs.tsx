@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { api } from '../api';
 import type { AuditLog } from '../types';
+import { formatDateTime } from '../utils/date';
 
 export function Logs() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
@@ -38,7 +39,7 @@ export function Logs() {
           <tbody>
             {logs.map((log) => (
               <tr key={log._id} className="border-t align-top">
-                <td className="px-4 py-3 whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td>
+                <td className="px-4 py-3 whitespace-nowrap">{formatDateTime(log.timestamp)}</td>
                 <td className="px-4 py-3">{log.userId?.username || '—'}</td>
                 <td className="px-4 py-3 font-mono text-xs">{log.actionType}</td>
                 <td className="px-4 py-3 font-mono text-xs text-slate-500 whitespace-pre-wrap">

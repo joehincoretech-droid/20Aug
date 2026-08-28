@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { Sow, type SowDocument } from '../models/Sow.js';
-import { Box, BOX_PRODUCT_LIMIT } from '../models/Box.js';
+import { Box } from '../models/Box.js';
 import { Pallet, PALLET_BOX_LIMIT } from '../models/Pallet.js';
 import { Product } from '../models/Product.js';
 import { ProductNameOption } from '../models/ProductNameOption.js';
@@ -177,11 +177,6 @@ packingRouter.post('/scan', async (req: Request, res: Response) => {
   if (box.completed) {
     return res.status(400).json({ message: 'This box is completed. Start a new box.' });
   }
-  if (box.products.length >= BOX_PRODUCT_LIMIT) {
-    return res.status(400).json({
-      message: `Box ${box.boxId} is full (${BOX_PRODUCT_LIMIT}/30 products). Complete the box to continue.`,
-    });
-  }
 
   let catalog = await Product.findOne({ productId: pid });
   let nextSku = sku || catalog?.sku;
@@ -202,6 +197,23 @@ packingRouter.post('/scan', async (req: Request, res: Response) => {
   if (!sow!.selectedSKUs.includes(nextSku)) {
     return res.status(400).json({
       message: `SKU ${nextSku} is not selected for this SOW`,
+    });
+  }
+
+  const skuOption = await ProductNameOption.findOne({ sku: nextSku });
+  const boxesPerOuterBox = skuOption?.boxesPerOuterBox;
+  if (!boxesPerOuterBox || boxesPerOuterBox < 1) {
+    return res.status(400).json({
+      code: 'BOX_CAPACITY_NOT_SET',
+      message: `SKU ${nextSku} has no boxes/outer box configured. Ask admin or PO clerk to set it.`,
+      sku: nextSku,
+    });
+  }
+
+  if (box.products.length >= boxesPerOuterBox) {
+    return res.status(400).json({
+      message: `Box ${box.boxId} is full (${box.products.length}/${boxesPerOuterBox} boxes). Complete the box to continue.`,
+      boxesPerOuterBox,
     });
   }
 
@@ -260,7 +272,7 @@ packingRouter.post('/scan', async (req: Request, res: Response) => {
 
   await syncPoStatus(sow!.poNumber);
 
-  res.status(201).json({ box, product: catalog });
+  res.status(201).json({ box, product: catalog, boxesPerOuterBox });
 });
 
 packingRouter.post('/boxes/:boxId/complete', async (req: Request, res: Response) => {

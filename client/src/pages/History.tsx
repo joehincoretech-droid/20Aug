@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api } from '../api';
 import type { Sow } from '../types';
+import { formatDateTime } from '../utils/date';
 
 export function History() {
   const navigate = useNavigate();
@@ -46,7 +47,7 @@ export function History() {
                 className="border-t hover:bg-slate-50 cursor-pointer"
                 onClick={() => navigate(`/pack/${sow._id}`)}
               >
-                <td className="px-4 py-3">{sow.completedAt ? new Date(sow.completedAt).toLocaleString() : '—'}</td>
+                <td className="px-4 py-3">{formatDateTime(sow.completedAt)}</td>
                 <td className="px-4 py-3 font-mono">{sow.sowNumber}</td>
                 <td className="px-4 py-3 font-mono">{sow.poNumber}</td>
                 <td className="px-4 py-3">{sow.clientCode}</td>

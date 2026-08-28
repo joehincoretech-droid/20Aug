@@ -17,6 +17,35 @@ import type { Box, Pallet, ProductName, SkuLabel, Sow } from '../types';
 
 type ScannerTarget = 'box' | 'pallet' | 'product';
 
+function buildCapacityBySku(labels?: SkuLabel[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const label of labels || []) {
+    if (label.boxesPerOuterBox != null && label.boxesPerOuterBox >= 1) {
+      map.set(label.sku, label.boxesPerOuterBox);
+    }
+  }
+  return map;
+}
+
+function capacityForSku(map: Map<string, number>, sku?: string): number | null {
+  if (!sku) return null;
+  const cap = map.get(sku);
+  return cap != null && cap >= 1 ? cap : null;
+}
+
+function capacityForBox(map: Map<string, number>, box?: Box): number | null {
+  return capacityForSku(map, box?.products[0]?.sku);
+}
+
+function capacityMeter(fill: number, capacity: number | null): string {
+  return capacity != null ? `${fill}/${capacity}` : `${fill}/—`;
+}
+
+function capacityFillRatio(fill: number, capacity: number | null): number {
+  if (!capacity) return 0;
+  return Math.min(1, fill / capacity);
+}
+
 export function Packing() {
   const { sowId } = useParams<{ sowId: string }>();
   const navigate = useNavigate();
@@ -176,6 +205,14 @@ export function Packing() {
         toast.error(`No product name for locked SKU ${lockedSku}`);
         return;
       }
+      const cap = capacityForSku(buildCapacityBySku(sow?.selectedSKULabels), lockedSku);
+      if (cap === null) {
+        toast.error(
+          `SKU ${lockedSku} has no Boxes/Outer Box configured. Ask admin or PO clerk to set it.`,
+          { duration: 5000 }
+        );
+        return;
+      }
       bodyExtra = { ...bodyExtra, sku: lockedSku, productName };
     }
 
@@ -214,6 +251,8 @@ export function Packing() {
             `Box already contains ${err.data.existingSku}. One box = one SKU.`,
           { duration: 4000 }
         );
+      } else if (err instanceof ApiError && err.data?.code === 'BOX_CAPACITY_NOT_SET') {
+        toast.error(err.message || 'SKU has no Boxes/Outer Box configured.', { duration: 5000 });
       } else {
         toast.error(err instanceof Error ? err.message : 'Request failed');
       }
@@ -325,6 +364,13 @@ export function Packing() {
   const totalPacked = allProductCount;
   const boxOnly = sow.packingType === 1;
   const palletMode = sow.packingType === 2 || sow.packingType === 3;
+  const capacityBySku = buildCapacityBySku(sow.selectedSKULabels);
+  const boxCapacity =
+    capacityForBox(capacityBySku, currentBox) ??
+    (skuLocked ? capacityForSku(capacityBySku, lockedSku) : null);
+  const lockedSkuMissingCapacity =
+    skuLocked && Boolean(lockedSku) && capacityForSku(capacityBySku, lockedSku) === null;
+  const boxAtCapacity = boxCapacity != null && boxFill >= boxCapacity;
 
   const hasBox = Boolean(currentBox);
   const hasPallet = Boolean(currentPallet);
@@ -377,10 +423,17 @@ export function Packing() {
     if (nextStep === 'pallet') {
       return { tone: 'blocked' as const, text: 'Scan or enter a Pallet ID to start' };
     }
+    if (lockedSkuMissingCapacity) {
+      return {
+        tone: 'blocked' as const,
+        text: `Locked SKU ${lockedSku} has no Boxes/Outer Box configured. Ask admin or PO clerk to set it.`,
+      };
+    }
     const palletPart = palletMode && palletId ? ` · Pallet ${palletId}` : '';
+    const capLabel = boxCapacity != null ? String(boxCapacity) : '—';
     return {
       tone: 'ready' as const,
-      text: `Scanning into ${currentBox!.boxId}${palletPart} · capacity ${boxFill}/30`,
+      text: `Scanning into ${currentBox!.boxId}${palletPart} · capacity ${boxFill}/${capLabel}`,
     };
   })();
 
@@ -389,13 +442,15 @@ export function Packing() {
     !hasBox ||
     Boolean(currentBox?.completed) ||
     sowTargetsMet ||
+    lockedSkuMissingCapacity ||
+    boxAtCapacity ||
     (palletMode && (!hasPallet || currentBox?.palletId !== palletId));
 
   const canCompleteBox =
     !readOnly &&
     Boolean(currentBox) &&
     !currentBox?.completed &&
-    (boxFill >= 30 || sowTargetsMet);
+    ((boxCapacity != null && boxFill >= boxCapacity) || sowTargetsMet);
 
   return (
     <div className="p-8 space-y-6">
@@ -529,8 +584,8 @@ export function Packing() {
                 onChange={setBoxId}
                 onCommit={() => ensureBox().catch((e: Error) => toast.error(e.message))}
                 onScan={() => setScanner('box')}
-                meter={currentBox ? `${boxFill}/30` : '—/30'}
-                fill={currentBox ? boxFill / 30 : 0}
+                meter={currentBox ? capacityMeter(boxFill, boxCapacity) : '—/—'}
+                fill={currentBox ? capacityFillRatio(boxFill, boxCapacity) : 0}
                 disabled={readOnly}
               />
 
@@ -541,6 +596,7 @@ export function Packing() {
                     {boxes.map((b) => {
                       const active = b.boxId === boxId;
                       const fill = b.products.length;
+                      const boxCap = capacityForBox(capacityBySku, b);
                       return (
                         <li key={b.boxId}>
                           <button
@@ -555,7 +611,10 @@ export function Packing() {
                           >
                             <span className="font-semibold truncate">
                               {b.boxId}
-                              <span className="font-normal text-slate-500"> ({fill}/30)</span>
+                              <span className="font-normal text-slate-500">
+                                {' '}
+                                ({capacityMeter(fill, boxCap)})
+                              </span>
                             </span>
                             {b.completed && (
                               <span className="shrink-0 rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[10px] font-sans font-medium">
@@ -580,7 +639,7 @@ export function Packing() {
                 }`}
               >
                 Complete Box
-                {canCompleteBox && boxFill >= 30
+                {canCompleteBox && boxCapacity != null && boxFill >= boxCapacity
                   ? ' · full'
                   : canCompleteBox && sowTargetsMet
                     ? ' · SOW done'
@@ -652,8 +711,8 @@ export function Packing() {
                     onChange={setBoxId}
                     onCommit={() => ensureBox().catch((e: Error) => toast.error(e.message))}
                     onScan={() => setScanner('box')}
-                    meter={currentBox ? `${boxFill}/30` : '—/30'}
-                    fill={currentBox ? boxFill / 30 : 0}
+                    meter={currentBox ? capacityMeter(boxFill, boxCapacity) : '—/—'}
+                    fill={currentBox ? capacityFillRatio(boxFill, boxCapacity) : 0}
                     disabled={readOnly}
                   />
 
@@ -665,6 +724,7 @@ export function Packing() {
                         {boxesOnPallet.map((b) => {
                           const active = b.boxId === boxId;
                           const fill = b.products.length;
+                      const boxCap = capacityForBox(capacityBySku, b);
                           return (
                             <li key={b.boxId}>
                               <button
@@ -679,7 +739,10 @@ export function Packing() {
                               >
                                 <span className="font-semibold truncate">
                                   {b.boxId}
-                                  <span className="font-normal text-slate-500"> ({fill}/30)</span>
+                                  <span className="font-normal text-slate-500">
+                                {' '}
+                                ({capacityMeter(fill, boxCap)})
+                              </span>
                                 </span>
                                 {b.completed && (
                                   <span className="shrink-0 rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[10px] font-sans font-medium">
@@ -708,7 +771,7 @@ export function Packing() {
                     }`}
                   >
                     Complete Box
-                    {canCompleteBox && boxFill >= 30
+                    {canCompleteBox && boxCapacity != null && boxFill >= boxCapacity
                       ? ' · full'
                       : canCompleteBox && sowTargetsMet
                         ? ' · SOW done'
@@ -733,7 +796,7 @@ export function Packing() {
               {currentBox ? (
                 <span className="text-sm font-normal text-slate-500 font-mono">
                   {palletMode && palletId ? `· ${palletId} · ` : '· '}
-                  {currentBox.boxId} ({boxFill}/30)
+                  {currentBox.boxId} ({capacityMeter(boxFill, boxCapacity)})
                 </span>
               ) : palletMode && hasPallet ? (
                 <span className="text-sm font-normal text-slate-400">
