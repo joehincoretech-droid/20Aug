@@ -6,6 +6,7 @@ import {
   FileText,
   History,
   LayoutDashboard,
+  Layers,
   LogOut,
   Menu,
   Shield,
@@ -60,9 +61,12 @@ export function Layout() {
           </button>
         </div>
         <nav className="p-3 flex-1 space-y-1">
+          <NavLink to="/" end className={linkClass} onClick={closeDrawer}>
+            <LayoutDashboard size={16} /> Dashboard
+          </NavLink>
           {(user?.role === 'admin' || user?.role === 'worker') && (
-            <NavLink to="/" end className={linkClass} onClick={closeDrawer}>
-              <LayoutDashboard size={16} /> SOW Dashboard
+            <NavLink to="/sow" className={linkClass} onClick={closeDrawer}>
+              <Layers size={16} /> SOW
             </NavLink>
           )}
           {(user?.role === 'admin' || user?.role === 'po') && (

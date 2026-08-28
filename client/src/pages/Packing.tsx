@@ -302,7 +302,7 @@ export function Packing() {
     try {
       await api(`/api/sows/${sowId}/complete`, { method: 'POST' });
       toast.success('Packing completed');
-      navigate('/');
+      navigate('/sow');
     } catch (err) {
       if (err instanceof ApiError && err.data?.code === 'UNLINKED_BOXES' && !force) {
         setWarnUnlinked(err.data.unlinkedBoxes as string[]);

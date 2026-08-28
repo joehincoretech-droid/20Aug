@@ -12,6 +12,7 @@ import { productNamesRouter } from './routes/productNames.js';
 import { purchaseOrdersRouter } from './routes/purchaseOrders.js';
 import { poClientsRouter } from './routes/poClients.js';
 import { logsRouter } from './routes/logs.js';
+import { dashboardRouter } from './routes/dashboard.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,6 +32,7 @@ export function createApp(staticDir?: string): Express {
   app.use('/api/purchase-orders', purchaseOrdersRouter);
   app.use('/api/po-clients', poClientsRouter);
   app.use('/api/logs', logsRouter);
+  app.use('/api/dashboard', dashboardRouter);
 
   const clientDist =
     staticDir ||

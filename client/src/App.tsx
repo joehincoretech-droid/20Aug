@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { useAuth } from './context/AuthContext';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
+import { Dashboard } from './pages/Dashboard';
 import { SOW } from './pages/SOW';
 import { Packing } from './pages/Packing';
 import { Users } from './pages/Users';
@@ -22,15 +23,9 @@ function Guard({ children, roles }: { children: ReactNode; roles?: UserRole[] })
   if (!user) return <Navigate to="/login" replace />;
   // Admin has full access to every page.
   if (roles && user.role !== 'admin' && !roles.includes(user.role)) {
-    return <Navigate to={user.role === 'po' ? '/pos' : '/'} replace />;
+    return <Navigate to="/" replace />;
   }
   return children;
-}
-
-function HomeRedirect() {
-  const { user } = useAuth();
-  if (user?.role === 'po') return <Navigate to="/pos" replace />;
-  return <SOW />;
 }
 
 export default function App() {
@@ -40,7 +35,7 @@ export default function App() {
     <Routes>
       <Route
         path="/login"
-        element={ready && user ? <Navigate to={user.role === 'po' ? '/pos' : '/'} replace /> : <Login />}
+        element={ready && user ? <Navigate to="/" replace /> : <Login />}
       />
       <Route
         element={
@@ -49,7 +44,15 @@ export default function App() {
           </Guard>
         }
       >
-        <Route path="/" element={<HomeRedirect />} />
+        <Route path="/" element={<Dashboard />} />
+        <Route
+          path="/sow"
+          element={
+            <Guard roles={['admin', 'worker']}>
+              <SOW />
+            </Guard>
+          }
+        />
         <Route
           path="/pack/:sowId"
           element={

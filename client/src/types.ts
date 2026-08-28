@@ -123,3 +123,66 @@ export interface PoClientLookup {
   status?: 'open' | 'fulfilled' | string;
   progressItems?: SkuProgress[];
 }
+
+export interface ChartSlice {
+  name: string;
+  value: number;
+  color: string;
+}
+
+export interface DashboardTopPo {
+  poNumber: string;
+  scanned: number;
+  ordered: number;
+  pct: number;
+}
+
+export interface DashboardTopSku {
+  sku: string;
+  productName: string;
+  scanned: number;
+}
+
+export interface DashboardDeliveryPo {
+  poNumber: string;
+  clientCode: string;
+  estimatedDeliveryDate: string | null;
+  fulfillmentPct: number;
+  scannedQty: number;
+  orderedQty: number;
+}
+
+export interface DashboardRecentSow {
+  _id: string;
+  sowNumber: string;
+  poNumber: string;
+  progressPct: number;
+  scannedQty: number;
+  orderedQty: number;
+}
+
+export interface DashboardKpis {
+  openPos: number;
+  fulfilledPos: number;
+  activeSows: number;
+  completedSows: number;
+  productsPacked: number;
+  boxesPacked: number;
+  fulfillmentPct: number | null;
+}
+
+export interface DashboardStats {
+  role: UserRole;
+  kpis: DashboardKpis;
+  poStatusSlices: ChartSlice[];
+  sowStatusSlices: ChartSlice[];
+  progressSlices: ChartSlice[];
+  packingTypeSlices: ChartSlice[];
+  topPos: DashboardTopPo[];
+  topSkus: DashboardTopSku[];
+  deliverySoon: DashboardDeliveryPo[];
+  deliveryOverdue: DashboardDeliveryPo[];
+  recentActiveSows: DashboardRecentSow[];
+  showPo: boolean;
+  showSow: boolean;
+}
