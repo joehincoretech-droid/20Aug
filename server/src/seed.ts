@@ -15,6 +15,8 @@ const INITIAL_SKU_NAMES = [
   { sku: 'SKU-E500', name: '蓮蓉', boxesPerOuterBox: 24 },
 ];
 
+const DEFAULT_ESTIMATED_DELIVERY = new Date('2026-12-31');
+
 const SAMPLE_POS = [
   {
     poNumber: 'PO-1001',
@@ -85,6 +87,7 @@ async function run(): Promise<void> {
         poNumber: po.poNumber,
         clientCode: po.clientCode,
         items: po.items,
+        estimatedDeliveryDate: DEFAULT_ESTIMATED_DELIVERY,
       },
       { upsert: true }
     );

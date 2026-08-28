@@ -82,10 +82,17 @@ purchaseOrdersRouter.get('/:poNumber', async (req: Request, res: Response) => {
 });
 
 purchaseOrdersRouter.post('/', requireRole('admin', 'po'), async (req: Request, res: Response) => {
-  const { clientCode, items } = req.body || {};
+  const { clientCode, items, estimatedDeliveryDate } = req.body || {};
   const nextClient = String(clientCode || '').trim();
   if (!nextClient) {
     return res.status(400).json({ message: 'Client ID is required' });
+  }
+  if (!estimatedDeliveryDate) {
+    return res.status(400).json({ message: 'Estimated delivery date is required' });
+  }
+  const deliveryDate = new Date(String(estimatedDeliveryDate));
+  if (Number.isNaN(deliveryDate.getTime())) {
+    return res.status(400).json({ message: 'Invalid estimated delivery date' });
   }
   const rawItems: Array<{ sku?: string; productName?: string; qty?: number }> = Array.isArray(items)
     ? items
@@ -119,6 +126,7 @@ purchaseOrdersRouter.post('/', requireRole('admin', 'po'), async (req: Request, 
     poNumber,
     clientCode: nextClient,
     items: resolved,
+    estimatedDeliveryDate: deliveryDate,
     createdBy: req.user!._id,
   });
 
@@ -131,6 +139,7 @@ purchaseOrdersRouter.post('/', requireRole('admin', 'po'), async (req: Request, 
   await writeAudit(req.user!._id, 'PO_CREATE', {
     poNumber,
     clientCode: nextClient,
+    estimatedDeliveryDate: deliveryDate,
     productOrder: orderLabel(resolved),
     items: resolved,
   });

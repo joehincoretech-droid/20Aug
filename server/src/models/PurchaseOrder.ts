@@ -14,6 +14,7 @@ const purchaseOrderSchema = new mongoose.Schema(
     poNumber: { type: String, required: true, unique: true, trim: true },
     clientCode: { type: String, required: true, trim: true },
     items: { type: [poItemSchema], default: [] },
+    estimatedDeliveryDate: { type: Date, default: null },
     status: { type: String, enum: ['open', 'fulfilled'], default: 'open' },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },

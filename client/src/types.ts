@@ -59,6 +59,7 @@ export interface BoxProduct {
   sku: string;
   productId: string;
   productName: string;
+  packedAt?: string;
 }
 
 export interface Box {
@@ -95,6 +96,7 @@ export interface PurchaseOrder {
   _id: string;
   poNumber: string;
   clientCode: string;
+  estimatedDeliveryDate?: string;
   productOrder?: string;
   createdAt: string;
   createdBy?: { username?: string } | null;

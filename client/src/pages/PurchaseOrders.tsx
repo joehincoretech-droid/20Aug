@@ -15,7 +15,7 @@ import { api } from '../api';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import type { ProductName, PurchaseOrder, Sow } from '../types';
-import { formatDateTime } from '../utils/date';
+import { formatDate, formatDateTime } from '../utils/date';
 
 const TYPES: Array<{ id: 1 | 2 | 3; title: string; icons: LucideIcon[] }> = [
   { id: 1, title: 'Only box', icons: [Package] },
@@ -99,6 +99,7 @@ export function PurchaseOrders() {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [clientCode, setClientCode] = useState('');
+  const [estimatedDeliveryDate, setEstimatedDeliveryDate] = useState('');
   const [previewPo, setPreviewPo] = useState('');
   const [qtys, setQtys] = useState<Record<string, string>>({});
 
@@ -174,6 +175,7 @@ export function PurchaseOrders() {
 
   async function openCreate() {
     setClientCode('');
+    setEstimatedDeliveryDate('');
     setQtys({});
     try {
       const data = await api<{ poNumber: string }>('/api/purchase-orders/next-number');
@@ -334,12 +336,17 @@ export function PurchaseOrders() {
       toast.error('Enter at least one product quantity');
       return;
     }
+    if (!estimatedDeliveryDate) {
+      toast.error('Select estimated delivery date');
+      return;
+    }
     setBusy(true);
     try {
       const data = await api<{ order: PurchaseOrder }>('/api/purchase-orders', {
         method: 'POST',
         body: {
           clientCode: clientCode.trim(),
+          estimatedDeliveryDate,
           items: lines.map((l) => ({ sku: l.sku, productName: l.name, qty: l.qty })),
         },
       });
@@ -495,6 +502,10 @@ export function PurchaseOrders() {
               <div className="rounded-xl bg-slate-50 border px-3 py-2">
                 <div className="text-[11px] uppercase text-slate-400">Client</div>
                 <div className="font-semibold">{detail.clientCode}</div>
+              </div>
+              <div className="rounded-xl bg-slate-50 border px-3 py-2">
+                <div className="text-[11px] uppercase text-slate-400">Est. delivery</div>
+                <div className="font-semibold">{formatDate(detail.estimatedDeliveryDate)}</div>
               </div>
               <div className="rounded-xl bg-slate-50 border px-3 py-2">
                 <div className="text-[11px] uppercase text-slate-400">Ordered</div>
@@ -818,7 +829,7 @@ export function PurchaseOrders() {
       {open && (
         <Modal title="Create PO" onClose={() => setOpen(false)} wide>
           <form className="space-y-4" onSubmit={createPo}>
-            <div className="grid sm:grid-cols-2 gap-4">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <label className="block text-sm">
                 <span className="font-medium">PO Number</span>
                 <input
@@ -835,6 +846,16 @@ export function PurchaseOrders() {
                   onChange={(e) => setClientCode(e.target.value)}
                   required
                   autoFocus
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium">Estimated delivery date</span>
+                <input
+                  type="date"
+                  className="mt-1 w-full rounded-lg border px-3 py-2"
+                  value={estimatedDeliveryDate}
+                  onChange={(e) => setEstimatedDeliveryDate(e.target.value)}
+                  required
                 />
               </label>
             </div>

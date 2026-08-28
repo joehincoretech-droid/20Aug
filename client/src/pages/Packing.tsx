@@ -14,6 +14,7 @@ import { api, ApiError } from '../api';
 import { Modal } from '../components/Modal';
 import { QrScanner } from '../components/QrScanner';
 import type { Box, Pallet, ProductName, SkuLabel, Sow } from '../types';
+import { formatDateTime } from '../utils/date';
 
 type ScannerTarget = 'box' | 'pallet' | 'product';
 
@@ -397,7 +398,10 @@ export function Packing() {
 
   const nextStepBanner = (() => {
     if (readOnly) {
-      return { tone: 'ready' as const, text: 'This SOW is completed — scanning is read-only.' };
+      return {
+        tone: 'ready' as const,
+        text: 'This SOW is completed — select a pallet and box below to review packed products.',
+      };
     }
     if (sowTargetsMet) {
       const names = metSkus.map((i) => `${i.productName} (${i.scannedQty}/${i.orderedQty})`).join(', ');
@@ -601,13 +605,12 @@ export function Packing() {
                         <li key={b.boxId}>
                           <button
                             type="button"
-                            disabled={readOnly}
                             onClick={() => selectExistingBox(b.boxId)}
                             className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left text-sm font-mono ${
                               active
                                 ? 'bg-amber-50 text-amber-950 ring-inset ring-2 ring-amber-400'
                                 : 'hover:bg-slate-50 text-slate-800'
-                            } disabled:opacity-50`}
+                            }`}
                           >
                             <span className="font-semibold truncate">
                               {b.boxId}
@@ -678,13 +681,12 @@ export function Packing() {
                         <li key={p.palletId}>
                           <button
                             type="button"
-                            disabled={readOnly}
                             onClick={() => selectExistingPallet(p.palletId)}
                             className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left text-sm font-mono ${
                               active
                                 ? 'bg-amber-50 text-amber-950 ring-inset ring-2 ring-amber-400'
                                 : 'hover:bg-slate-50 text-slate-800'
-                            } disabled:opacity-50`}
+                            }`}
                           >
                             <span className="font-semibold truncate">
                               {p.palletId}
@@ -729,13 +731,12 @@ export function Packing() {
                             <li key={b.boxId}>
                               <button
                                 type="button"
-                                disabled={readOnly}
                                 onClick={() => selectExistingBox(b.boxId)}
                                 className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left text-sm font-mono ${
                                   active
                                     ? 'bg-amber-50 text-amber-950 ring-inset ring-2 ring-amber-400'
                                     : 'hover:bg-slate-50 text-slate-800'
-                                } disabled:opacity-50`}
+                                }`}
                               >
                                 <span className="font-semibold truncate">
                                   {b.boxId}
@@ -879,6 +880,7 @@ export function Packing() {
               <th className="px-4 py-2 font-medium">SKU</th>
               <th className="px-4 py-2 font-medium">Product ID</th>
               <th className="px-4 py-2 font-medium">Product Name</th>
+              <th className="px-4 py-2 font-medium whitespace-nowrap">Packed at</th>
               <th className="px-4 py-2 font-medium">BOX ID</th>
               {!boxOnly && <th className="px-4 py-2 font-medium">Pallet ID</th>}
             </tr>
@@ -886,7 +888,7 @@ export function Packing() {
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={boxOnly ? 4 : 5} className="px-4 py-8 text-center text-slate-400">
+                <td colSpan={boxOnly ? 5 : 6} className="px-4 py-8 text-center text-slate-400">
                   {palletMode && !hasPallet
                     ? 'Scan a Pallet ID first.'
                     : boxId && !currentBox
@@ -906,6 +908,9 @@ export function Packing() {
                 <td className="px-4 py-2 font-mono">{row.sku}</td>
                 <td className="px-4 py-2 font-mono">{row.productId}</td>
                 <td className="px-4 py-2">{row.productName}</td>
+                <td className="px-4 py-2 text-slate-500 whitespace-nowrap text-xs">
+                  {formatDateTime(row.packedAt)}
+                </td>
                 <td className="px-4 py-2 font-mono">{row.boxId}</td>
                 {!boxOnly && <td className="px-4 py-2 font-mono">{row.palletId}</td>}
               </tr>

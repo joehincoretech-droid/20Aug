@@ -5,6 +5,7 @@ const packedProductSchema = new mongoose.Schema(
     productId: { type: String, required: true },
     productName: { type: String, required: true },
     sku: { type: String, required: true },
+    packedAt: { type: Date, default: Date.now },
   },
   { _id: false }
 );

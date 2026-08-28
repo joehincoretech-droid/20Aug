@@ -260,6 +260,7 @@ packingRouter.post('/scan', async (req: Request, res: Response) => {
     productId: pid,
     productName: catalog.productName,
     sku: catalog.sku,
+    packedAt: new Date(),
   });
   await box.save();
 
