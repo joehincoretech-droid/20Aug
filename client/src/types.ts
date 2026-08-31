@@ -130,13 +130,6 @@ export interface ChartSlice {
   color: string;
 }
 
-export interface DashboardTopPo {
-  poNumber: string;
-  scanned: number;
-  ordered: number;
-  pct: number;
-}
-
 export interface DashboardTopSku {
   sku: string;
   productName: string;
@@ -168,7 +161,6 @@ export interface DashboardKpis {
   completedSows: number;
   productsPacked: number;
   boxesPacked: number;
-  fulfillmentPct: number | null;
 }
 
 export interface DashboardStats {
@@ -176,9 +168,6 @@ export interface DashboardStats {
   kpis: DashboardKpis;
   poStatusSlices: ChartSlice[];
   sowStatusSlices: ChartSlice[];
-  progressSlices: ChartSlice[];
-  packingTypeSlices: ChartSlice[];
-  topPos: DashboardTopPo[];
   topSkus: DashboardTopSku[];
   deliverySoon: DashboardDeliveryPo[];
   deliveryOverdue: DashboardDeliveryPo[];

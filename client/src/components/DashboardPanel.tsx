@@ -47,156 +47,12 @@ const CHART_COLORS = {
   palette: ['#1e3a8a', '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd'],
 } as const;
 
-type KpiAccent = 'amber' | 'emerald' | 'slate';
-
-interface KpiItem {
-  label: string;
-  value: string | number;
-  accent?: KpiAccent;
-  statusText?: string;
-  progressPct?: number;
-  showDonut?: boolean;
-}
-
-function chunkRows<T>(items: T[], size: number): T[][] {
-  const rows: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    rows.push(items.slice(i, i + size));
-  }
-  return rows;
-}
-
-function KpiStatusChip({ text, accent = 'slate' }: { text: string; accent?: KpiAccent }) {
-  const className =
-    accent === 'emerald'
-      ? 'bg-emerald-50 text-emerald-700 ring-emerald-100'
-      : accent === 'amber'
-        ? 'bg-amber-50 text-amber-800 ring-amber-100'
-        : 'bg-slate-50 text-slate-600 ring-slate-100';
-  return (
-    <span
-      className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${className}`}
-    >
-      {text}
-    </span>
-  );
-}
-
-function KpiProgressBar({ pct, accent = 'slate' }: { pct: number; accent?: KpiAccent }) {
-  const fillClass =
-    accent === 'emerald' ? 'bg-emerald-500' : accent === 'amber' ? 'bg-amber-500' : 'bg-slate-400';
-  return (
-    <div className="h-1 w-full max-w-[140px] rounded-full bg-slate-100 overflow-hidden">
-      <div
-        className={`h-full rounded-full transition-all ${fillClass}`}
-        style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
-      />
-    </div>
-  );
-}
-
-function KpiMiniDonut({ pct, accent = 'slate' }: { pct: number; accent?: KpiAccent }) {
-  const fill =
-    accent === 'emerald' ? CHART_COLORS.dark : accent === 'amber' ? CHART_COLORS.mid : CHART_COLORS.mid;
-  const clamped = Math.min(100, Math.max(0, pct));
-  const data = [
-    { name: 'filled', value: clamped },
-    { name: 'remaining', value: 100 - clamped },
-  ];
-  return (
-    <div className="relative h-12 w-12 shrink-0">
-      <ResponsiveContainer width="100%" height="100%">
-        <PieChart>
-          <Pie
-            data={data}
-            dataKey="value"
-            cx="50%"
-            cy="50%"
-            innerRadius={14}
-            outerRadius={22}
-            startAngle={90}
-            endAngle={-270}
-            stroke="none"
-          >
-            <Cell fill={fill} />
-            <Cell fill={CHART_COLORS.pale} />
-          </Pie>
-        </PieChart>
-      </ResponsiveContainer>
-      <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold tabular-nums text-slate-700">
-        {clamped}%
-      </span>
-    </div>
-  );
-}
-
-function KpiTile({
-  label,
-  value,
-  statusText,
-  progressPct,
-  showDonut,
-  accent = 'slate',
-}: KpiItem) {
-  return (
-    <div className="flex min-h-[120px] flex-col justify-between px-6 py-5 sm:px-7 sm:py-6">
-      <div className="text-xs font-medium text-slate-400">{label}</div>
-      <div className="mt-3 flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="text-3xl font-bold tabular-nums tracking-tight text-slate-900 sm:text-[2rem]">
-            {value}
-          </div>
-          {statusText && (
-            <div className="mt-2">
-              <KpiStatusChip text={statusText} accent={accent} />
-            </div>
-          )}
-          {progressPct != null && !showDonut && (
-            <div className="mt-2.5">
-              <KpiProgressBar pct={progressPct} accent={accent} />
-            </div>
-          )}
-        </div>
-        {showDonut && progressPct != null && <KpiMiniDonut pct={progressPct} accent={accent} />}
-      </div>
-    </div>
-  );
-}
-
-function KpiPanel({ items }: { items: KpiItem[] }) {
-  if (items.length === 0) return null;
-
-  const rows = chunkRows(items, 3);
-
-  return (
-    <div className={CARD_CLASS}>
-      {rows.map((row, rowIndex) => (
-        <div
-          key={rowIndex}
-          className={`grid grid-cols-1 md:grid-cols-3 ${rowIndex > 0 ? 'border-t border-slate-100' : ''}`}
-        >
-          {row.map((item, colIndex) => (
-            <div
-              key={item.label}
-              className={colIndex > 0 ? 'border-t border-slate-100 md:border-t-0 md:border-l md:border-slate-100' : ''}
-            >
-              <KpiTile {...item} />
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function mapSliceLabels(slices: DashboardStats['poStatusSlices']): DashboardStats['poStatusSlices'] {
   const labelMap: Record<string, string> = {
     Open: 'Total',
     Fulfilled: 'Completed',
     Packing: 'Total',
     Completed: 'Completed',
-    Scanned: 'Scanned',
-    Remaining: 'Remaining',
   };
   const colorMap: Record<string, string> = {
     Completed: CHART_COLORS.dark,
@@ -204,8 +60,6 @@ function mapSliceLabels(slices: DashboardStats['poStatusSlices']): DashboardStat
     Open: CHART_COLORS.light,
     Fulfilled: CHART_COLORS.dark,
     Packing: CHART_COLORS.light,
-    Scanned: CHART_COLORS.dark,
-    Remaining: CHART_COLORS.pale,
   };
   return slices.map((slice, index) => {
     const name = labelMap[slice.name] ?? slice.name;
@@ -371,16 +225,63 @@ function SowStatusPanel({
   );
 }
 
-function ChartCard({ title, children, empty }: { title: string; children: ReactNode; empty?: boolean }) {
+function ChartCard({
+  title,
+  children,
+  empty,
+  chartHeight = 240,
+}: {
+  title: string;
+  children: ReactNode;
+  empty?: boolean;
+  chartHeight?: number;
+}) {
   return (
     <div className={`${CARD_CLASS} p-6`}>
       <h3 className="text-base font-semibold text-slate-800">{title}</h3>
       {empty ? (
         <p className="mt-8 py-16 text-center text-sm text-slate-400">No data available for this period.</p>
       ) : (
-        <div className="mt-4 h-[240px]">{children}</div>
+        <div className="mt-4" style={{ height: chartHeight }}>
+          {children}
+        </div>
       )}
     </div>
+  );
+}
+
+function SkuChartTick(props: {
+  x?: string | number;
+  y?: string | number;
+  payload?: { value?: string };
+  items: DashboardStats['topSkus'];
+}) {
+  const x = Number(props.x ?? 0);
+  const y = Number(props.y ?? 0);
+  const { payload, items } = props;
+  const row = items.find((item) => item.sku === payload?.value);
+  const productName = row?.productName ?? '';
+  const maxLen = 22;
+  const displayName =
+    productName.length > maxLen ? `${productName.slice(0, maxLen)}…` : productName;
+
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text
+        x={0}
+        y={0}
+        dy={12}
+        textAnchor="middle"
+        fill="#1e293b"
+        fontSize={10}
+        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+      >
+        {payload?.value}
+      </text>
+      <text x={0} y={0} dy={26} textAnchor="middle" fill="#64748b" fontSize={9}>
+        {displayName}
+      </text>
+    </g>
   );
 }
 
@@ -528,18 +429,6 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
     (showPo && (kpis.openPos + kpis.fulfilledPos > 0)) ||
     (showSow && (kpis.activeSows + kpis.completedSows > 0));
 
-  const kpiItems: KpiItem[] = [];
-  if (kpis.fulfillmentPct != null) {
-    kpiItems.push({
-      label: 'Fulfillment rate',
-      value: `${kpis.fulfillmentPct}%`,
-      accent: kpis.fulfillmentPct >= 100 ? 'emerald' : 'amber',
-      statusText: kpis.fulfillmentPct >= 100 ? 'Target met' : 'In progress',
-      progressPct: kpis.fulfillmentPct,
-      showDonut: true,
-    });
-  }
-
   return (
     <div className="space-y-8">
       {!hasAnyData && (
@@ -613,7 +502,7 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
       <section>
         <SectionHeading
           title="Key performance indicators & operational analytics"
-          description="Summary metrics, status distribution, and packing analysis."
+          description="Purchase order and shipment order status overview."
         />
         <div className="space-y-4">
           {showPo && (
@@ -630,66 +519,53 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
               slices={stats.sowStatusSlices}
             />
           )}
-          <KpiPanel items={kpiItems} />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {showSow && (
-              <>
-                <ChartCard title="Active fulfillment progress" empty={stats.progressSlices.length === 0}>
-                  <PieWidget slices={mapSliceLabels(stats.progressSlices)} innerRadius={55} />
-                </ChartCard>
-                <ChartCard title="Packing configuration mix" empty={stats.packingTypeSlices.length === 0}>
-                  <PieWidget slices={mapSliceLabels(stats.packingTypeSlices)} />
-                </ChartCard>
-              </>
-            )}
-          </div>
         </div>
       </section>
 
-      {(showPo && stats.topPos.length > 0) || (showSow && stats.topSkus.length > 0) ? (
+      {showSow && stats.topSkus.length > 0 ? (
         <section>
           <SectionHeading
             title="Throughput ranking"
-            description="Highest-volume purchase orders and SKUs by units processed."
+            description="SKUs ranked by units shipped, with product names shown below each SKU."
           />
-          <div className="grid lg:grid-cols-2 gap-4 overflow-x-auto">
-            {showPo && stats.topPos.length > 0 && (
-              <ChartCard title="Leading purchase orders by fulfillment volume">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={stats.topPos} layout="vertical" margin={{ left: 8, right: 16 }}>
-                    <XAxis type="number" hide />
-                    <YAxis type="category" dataKey="poNumber" width={72} tick={{ fontSize: 11 }} />
-                    <Tooltip
-                      formatter={(value, _name, item) => {
-                        const row = item.payload as DashboardStats['topPos'][0];
-                        const n = Number(value ?? 0);
-                        return [`${n} / ${row.ordered} (${row.pct}%)`, 'Units fulfilled'];
-                      }}
-                    />
-                    <Bar dataKey="scanned" fill={CHART_COLORS.dark} radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartCard>
-            )}
-            {showSow && stats.topSkus.length > 0 && (
-              <ChartCard title="Leading SKUs by units shipped">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={stats.topSkus} margin={{ bottom: 48 }}>
-                    <XAxis dataKey="sku" tick={{ fontSize: 10 }} angle={-35} textAnchor="end" height={56} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                    <Tooltip
-                      formatter={(value) => [Number(value ?? 0), 'Units shipped']}
-                      labelFormatter={(_label, payload) => {
-                        const row = payload?.[0]?.payload as DashboardStats['topSkus'][0] | undefined;
-                        return row ? `${row.sku} — ${row.productName}` : '';
-                      }}
-                    />
-                    <Bar dataKey="scanned" fill={CHART_COLORS.dark} radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartCard>
-            )}
-          </div>
+          <ChartCard
+            title="Leading SKUs by units shipped"
+            chartHeight={Math.max(280, stats.topSkus.length * 36 + 120)}
+          >
+            <div
+              className="h-full overflow-x-auto"
+              style={{ minWidth: '100%', width: Math.max(stats.topSkus.length * 88, 480) }}
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={stats.topSkus} margin={{ bottom: 56, left: 8, right: 16, top: 8 }}>
+                  <XAxis
+                    dataKey="sku"
+                    interval={0}
+                    tickLine={false}
+                    axisLine={{ stroke: '#e2e8f0' }}
+                    tick={(props) => (
+                      <SkuChartTick
+                        x={props.x}
+                        y={props.y}
+                        payload={props.payload}
+                        items={stats.topSkus}
+                      />
+                    )}
+                    height={56}
+                  />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                  <Tooltip
+                    formatter={(value) => [Number(value ?? 0), 'Units shipped']}
+                    labelFormatter={(_label, payload) => {
+                      const row = payload?.[0]?.payload as DashboardStats['topSkus'][0] | undefined;
+                      return row ? `${row.sku} — ${row.productName}` : '';
+                    }}
+                  />
+                  <Bar dataKey="scanned" fill={CHART_COLORS.dark} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </ChartCard>
         </section>
       ) : null}
 
