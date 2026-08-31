@@ -9,6 +9,8 @@ import {
   LayersArrowUp,
   Package,
   Plus,
+  Search,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import { api } from '../api';
@@ -118,6 +120,20 @@ function ProductOrderList({
   );
 }
 
+function poMatchesSearch(order: PurchaseOrder, q: string): boolean {
+  const itemText = (order.items || [])
+    .map((i) => `${i.sku} ${i.productName}`)
+    .join(' ')
+    .toLowerCase();
+  return (
+    order.poNumber.toLowerCase().includes(q) ||
+    order.clientCode.toLowerCase().includes(q) ||
+    (order.productOrder || '').toLowerCase().includes(q) ||
+    (order.createdBy?.username || '').toLowerCase().includes(q) ||
+    itemText.includes(q)
+  );
+}
+
 function SortHeader({
   label,
   column,
@@ -180,6 +196,7 @@ export function PurchaseOrders() {
   const [sortKey, setSortKey] = useState<PoSortKey>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [statusFilter, setStatusFilter] = useState<PoStatusFilter>('all');
+  const [search, setSearch] = useState('');
 
   function handleSort(key: PoSortKey) {
     if (sortKey === key) {
@@ -191,7 +208,11 @@ export function PurchaseOrders() {
   }
 
   const sortedOrders = useMemo(() => {
+    const q = search.trim().toLowerCase();
     let list = [...orders];
+    if (q) {
+      list = list.filter((o) => poMatchesSearch(o, q));
+    }
     if (statusFilter !== 'all') {
       list = list.filter((o) => poStatusOf(o) === statusFilter);
     }
@@ -214,7 +235,7 @@ export function PurchaseOrders() {
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return list;
-  }, [orders, sortKey, sortDir, statusFilter]);
+  }, [orders, sortKey, sortDir, statusFilter, search]);
 
   const statusCounts = useMemo(() => {
     let open = 0;
@@ -446,8 +467,26 @@ export function PurchaseOrders() {
         </button>
       </div>
 
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+      <div className="mt-6 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3">
+        <div className="relative flex-1 min-w-0 sm:min-w-48">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input
+            className="w-full rounded-lg border bg-white pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+            placeholder="Search PO, client, SKU, product…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
+            <button
+              type="button"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              onClick={() => setSearch('')}
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5 -mx-1 px-1">
           {([
             { id: 'all', label: 'All' },
             { id: 'open', label: 'Open' },
@@ -474,7 +513,7 @@ export function PurchaseOrders() {
             </button>
           ))}
         </div>
-        <div className="text-xs text-slate-400 sm:ml-auto">
+        <div className="text-xs text-slate-400 sm:ml-auto shrink-0">
           {sortedOrders.length} / {orders.length} POs
         </div>
       </div>
@@ -505,7 +544,7 @@ export function PurchaseOrders() {
                 <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
                   {orders.length === 0
                     ? 'No purchase orders yet.'
-                    : 'No POs match this status filter.'}
+                    : 'No POs match your search or filter.'}
                 </td>
               </tr>
             )}

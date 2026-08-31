@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronsUpDown, Search, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../api';
 import { Modal } from '../components/Modal';
@@ -19,6 +19,7 @@ export function ProductNames() {
   const [form, setForm] = useState<ProductNameForm>(EMPTY_FORM);
   const [sortKey, setSortKey] = useState<SkuSortKey>('sku');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [search, setSearch] = useState('');
 
   async function load() {
     const data = await api<{ names: ProductName[] }>('/api/product-names');
@@ -38,9 +39,17 @@ export function ProductNames() {
     }
   }
 
-  const sortedNames = useMemo(() => {
-    const list = [...names];
-    list.sort((a, b) => {
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let list = names;
+    if (q) {
+      list = list.filter(
+        (item) =>
+          (item.sku || '').toLowerCase().includes(q) ||
+          (item.name || '').toLowerCase().includes(q)
+      );
+    }
+    return [...list].sort((a, b) => {
       let cmp = 0;
       if (sortKey === 'sku') {
         cmp = (a.sku || '').localeCompare(b.sku || '');
@@ -51,8 +60,7 @@ export function ProductNames() {
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
-    return list;
-  }, [names, sortKey, sortDir]);
+  }, [names, sortKey, sortDir, search]);
 
   function openCreate() {
     setEditing(null);
@@ -142,8 +150,8 @@ export function ProductNames() {
   }
 
   return (
-    <div className="p-8">
-      <div className="flex justify-between items-center">
+    <div className="p-4 md:p-8">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">SKU / Product Names</h1>
           <p className="text-slate-500 mt-1">
@@ -158,7 +166,32 @@ export function ProductNames() {
           Add SKU / Name
         </button>
       </div>
-      <div className="mt-6 bg-white rounded-2xl border overflow-hidden">
+
+      <div className="mt-6 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3">
+        <div className="relative flex-1 min-w-0 sm:min-w-48">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input
+            className="w-full rounded-lg border bg-white pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+            placeholder="Search SKU or product name…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
+            <button
+              type="button"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              onClick={() => setSearch('')}
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        <div className="text-xs text-slate-400 sm:ml-auto shrink-0">
+          {rows.length} / {names.length} rows
+        </div>
+      </div>
+
+      <div className="mt-3 bg-white rounded-2xl border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-slate-50 text-left text-slate-500">
@@ -176,14 +209,14 @@ export function ProductNames() {
               </tr>
             </thead>
             <tbody>
-              {sortedNames.length === 0 && (
+              {rows.length === 0 && (
                 <tr>
                   <td colSpan={4} className="px-4 py-10 text-center text-slate-400">
-                    No items yet. Run seed or add one.
+                    {names.length === 0 ? 'No items yet. Run seed or add one.' : 'No items match your search.'}
                   </td>
                 </tr>
               )}
-              {sortedNames.map((item) => (
+              {rows.map((item) => (
                 <tr key={item._id} className="border-t">
                   <td className="px-4 py-3 font-mono whitespace-nowrap">{item.sku}</td>
                   <td className="px-4 py-3 font-medium">{item.name}</td>

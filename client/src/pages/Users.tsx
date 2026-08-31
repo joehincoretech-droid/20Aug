@@ -1,5 +1,6 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import toast from 'react-hot-toast';
+import { Search, X } from 'lucide-react';
 import { api } from '../api';
 import { Modal } from '../components/Modal';
 import type { User, UserRole } from '../types';
@@ -11,6 +12,8 @@ import {
 import { formatDateTime } from '../utils/date';
 
 type UserForm = { username: string; password: string; confirmPassword: string; role: UserRole };
+
+type RoleFilter = 'all' | UserRole;
 
 const EMPTY_FORM: UserForm = { username: '', password: '', confirmPassword: '', role: 'worker' };
 
@@ -61,6 +64,32 @@ export function Users() {
   const [editUser, setEditUser] = useState<User | null>(null);
   const [createForm, setCreateForm] = useState<UserForm>(EMPTY_FORM);
   const [editForm, setEditForm] = useState<UserForm>(EMPTY_FORM);
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
+
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return users.filter((u) => {
+      if (roleFilter !== 'all' && u.role !== roleFilter) return false;
+      if (!q) return true;
+      return (
+        u.username.toLowerCase().includes(q) ||
+        u.role.toLowerCase().includes(q)
+      );
+    });
+  }, [users, search, roleFilter]);
+
+  const roleCounts = useMemo(() => {
+    let admin = 0;
+    let worker = 0;
+    let po = 0;
+    for (const u of users) {
+      if (u.role === 'admin') admin += 1;
+      else if (u.role === 'worker') worker += 1;
+      else if (u.role === 'po') po += 1;
+    }
+    return { all: users.length, admin, worker, po };
+  }, [users]);
 
   async function load() {
     const data = await api<{ users: User[] }>('/api/users');
@@ -152,7 +181,62 @@ export function Users() {
           Create user
         </button>
       </div>
-      <div className="mt-6 bg-white rounded-2xl border overflow-hidden">
+
+      <div className="mt-6 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3">
+        <div className="relative flex-1 min-w-0 sm:min-w-48">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input
+            className="w-full rounded-lg border bg-white pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+            placeholder="Search username or role…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
+            <button
+              type="button"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              onClick={() => setSearch('')}
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5 -mx-1 px-1">
+          {(
+            [
+              { id: 'all', label: 'All' },
+              { id: 'admin', label: 'Admin' },
+              { id: 'worker', label: 'Worker' },
+              { id: 'po', label: 'PO' },
+            ] as const
+          ).map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setRoleFilter(tab.id)}
+              className={`rounded-lg px-3 py-2 text-xs font-medium capitalize transition ${
+                roleFilter === tab.id
+                  ? tab.id === 'all'
+                    ? 'bg-slate-800 text-white'
+                    : tab.id === 'admin'
+                      ? 'bg-emerald-600 text-white'
+                      : tab.id === 'worker'
+                        ? 'bg-amber-500 text-slate-950'
+                        : 'bg-slate-200 text-slate-700'
+                  : 'bg-white border text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {tab.label}
+              <span className="ml-1.5 opacity-80">{roleCounts[tab.id]}</span>
+            </button>
+          ))}
+        </div>
+        <div className="text-xs text-slate-400 sm:ml-auto shrink-0">
+          {rows.length} / {users.length} users
+        </div>
+      </div>
+
+      <div className="mt-3 bg-white rounded-2xl border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-slate-50 text-left text-slate-500">
@@ -164,7 +248,16 @@ export function Users() {
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-4 py-10 text-center text-slate-400">
+                    {users.length === 0
+                      ? 'No users yet.'
+                      : 'No users match your search or filter.'}
+                  </td>
+                </tr>
+              )}
+              {rows.map((u) => (
                 <tr key={u._id} className="border-t">
                   <td className="px-4 py-3 font-medium whitespace-nowrap">{u.username}</td>
                   <td className="px-4 py-3 uppercase text-xs tracking-wide whitespace-nowrap">
