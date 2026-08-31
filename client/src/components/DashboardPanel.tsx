@@ -37,6 +37,16 @@ function SectionHeading({ title, description }: { title: string; description?: s
 const CARD_CLASS =
   'rounded-2xl bg-white shadow-[0_4px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-100';
 
+/** Dark blue palette for dashboard charts */
+const CHART_COLORS = {
+  dark: '#1e3a8a',
+  mid: '#2563eb',
+  light: '#60a5fa',
+  pale: '#dbeafe',
+  muted: '#cbd5e1',
+  palette: ['#1e3a8a', '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd'],
+} as const;
+
 type KpiAccent = 'amber' | 'emerald' | 'slate';
 
 interface KpiItem {
@@ -86,7 +96,8 @@ function KpiProgressBar({ pct, accent = 'slate' }: { pct: number; accent?: KpiAc
 }
 
 function KpiMiniDonut({ pct, accent = 'slate' }: { pct: number; accent?: KpiAccent }) {
-  const fill = accent === 'emerald' ? '#10b981' : accent === 'amber' ? '#f59e0b' : '#64748b';
+  const fill =
+    accent === 'emerald' ? CHART_COLORS.dark : accent === 'amber' ? CHART_COLORS.mid : CHART_COLORS.mid;
   const clamped = Math.min(100, Math.max(0, pct));
   const data = [
     { name: 'filled', value: clamped },
@@ -108,7 +119,7 @@ function KpiMiniDonut({ pct, accent = 'slate' }: { pct: number; accent?: KpiAcce
             stroke="none"
           >
             <Cell fill={fill} />
-            <Cell fill="#f1f5f9" />
+            <Cell fill={CHART_COLORS.pale} />
           </Pie>
         </PieChart>
       </ResponsiveContainer>
@@ -178,6 +189,110 @@ function KpiPanel({ items }: { items: KpiItem[] }) {
   );
 }
 
+function mapSliceLabels(slices: DashboardStats['poStatusSlices']): DashboardStats['poStatusSlices'] {
+  const labelMap: Record<string, string> = {
+    Open: 'Total',
+    Fulfilled: 'Completed',
+    Packing: 'Total',
+    Completed: 'Completed',
+    Scanned: 'Scanned',
+    Remaining: 'Remaining',
+  };
+  const colorMap: Record<string, string> = {
+    Completed: CHART_COLORS.dark,
+    Total: CHART_COLORS.light,
+    Open: CHART_COLORS.light,
+    Fulfilled: CHART_COLORS.dark,
+    Packing: CHART_COLORS.light,
+    Scanned: CHART_COLORS.dark,
+    Remaining: CHART_COLORS.pale,
+  };
+  return slices.map((slice, index) => {
+    const name = labelMap[slice.name] ?? slice.name;
+    return {
+      ...slice,
+      name,
+      color:
+        colorMap[name] ??
+        colorMap[slice.name] ??
+        CHART_COLORS.palette[index % CHART_COLORS.palette.length],
+    };
+  });
+}
+
+function StatusHorizonBar({
+  totalLabel,
+  total,
+  completed,
+  entityName,
+}: {
+  totalLabel: string;
+  total: number;
+  completed: number;
+  entityName: string;
+}) {
+  const completedPct = total > 0 ? (completed / total) * 100 : 0;
+  const remainingPct = total > 0 ? 100 - completedPct : 0;
+
+  return (
+    <div className="flex flex-col justify-center px-6 py-6 sm:px-7 sm:py-8">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <div className="text-xs font-medium text-slate-400">{totalLabel}</div>
+          <div className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-slate-900 sm:text-[2rem]">
+            {total}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-xs font-medium text-slate-400">Completed</div>
+          <div className="mt-1 text-2xl font-bold tabular-nums text-blue-900">
+            {completed}
+            <span className="ml-1 text-sm font-medium text-slate-400">
+              ({Math.round(completedPct)}%)
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="mt-5 flex h-4 w-full overflow-hidden rounded-full bg-slate-100"
+        role="img"
+        aria-label={`${completed} completed of ${total} total ${entityName}`}
+      >
+        {completed > 0 && (
+          <div
+            className="h-full transition-all"
+            style={{ width: `${completedPct}%`, backgroundColor: CHART_COLORS.dark }}
+          />
+        )}
+        {total - completed > 0 && (
+          <div
+            className="h-full transition-all"
+            style={{ width: `${remainingPct}%`, backgroundColor: CHART_COLORS.light }}
+          />
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600">
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: CHART_COLORS.dark }}
+          />
+          Completed <span className="font-semibold tabular-nums text-slate-800">{completed}</span>
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: CHART_COLORS.light }}
+          />
+          Total <span className="font-semibold tabular-nums text-slate-800">{total - completed}</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function PoStatusPanel({
   openPos,
   fulfilledPos,
@@ -188,8 +303,6 @@ function PoStatusPanel({
   slices: DashboardStats['poStatusSlices'];
 }) {
   const total = openPos + fulfilledPos;
-  const shareProgress = (part: number) => (total > 0 ? Math.round((part / total) * 100) : undefined);
-  const statusOfTotal = (part: number) => (total > 0 ? `${part} of ${total} total` : undefined);
 
   return (
     <div className={CARD_CLASS}>
@@ -201,26 +314,16 @@ function PoStatusPanel({
           No purchase orders recorded yet.
         </p>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_minmax(220px,32%)]">
-          <KpiTile
-            label="Open purchase orders"
-            value={openPos}
-            accent="amber"
-            statusText={statusOfTotal(openPos)}
-            progressPct={shareProgress(openPos)}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(220px,32%)]">
+          <StatusHorizonBar
+            totalLabel="Total purchase orders"
+            total={total}
+            completed={fulfilledPos}
+            entityName="purchase orders"
           />
-          <div className="border-t border-slate-100 lg:border-t-0 lg:border-l lg:border-slate-100">
-            <KpiTile
-              label="Fulfilled purchase orders"
-              value={fulfilledPos}
-              accent="emerald"
-              statusText={statusOfTotal(fulfilledPos)}
-              progressPct={shareProgress(fulfilledPos)}
-            />
-          </div>
           <div className="border-t border-slate-100 lg:border-t-0 lg:border-l lg:border-slate-100 px-4 py-4 sm:px-5">
             <div className="h-[220px]">
-              <PieWidget slices={slices} innerRadius={58} />
+              <PieWidget slices={mapSliceLabels(slices)} innerRadius={58} />
             </div>
           </div>
         </div>
@@ -239,8 +342,6 @@ function SowStatusPanel({
   slices: DashboardStats['sowStatusSlices'];
 }) {
   const total = activeSows + completedSows;
-  const shareProgress = (part: number) => (total > 0 ? Math.round((part / total) * 100) : undefined);
-  const statusOfTotal = (part: number) => (total > 0 ? `${part} of ${total} total` : undefined);
 
   return (
     <div className={CARD_CLASS}>
@@ -252,26 +353,16 @@ function SowStatusPanel({
           No shipment orders recorded yet.
         </p>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_minmax(220px,32%)]">
-          <KpiTile
-            label="Active shipment orders"
-            value={activeSows}
-            accent="amber"
-            statusText={statusOfTotal(activeSows)}
-            progressPct={shareProgress(activeSows)}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(220px,32%)]">
+          <StatusHorizonBar
+            totalLabel="Total shipment orders"
+            total={total}
+            completed={completedSows}
+            entityName="shipment orders"
           />
-          <div className="border-t border-slate-100 lg:border-t-0 lg:border-l lg:border-slate-100">
-            <KpiTile
-              label="Completed shipment orders"
-              value={completedSows}
-              accent="emerald"
-              statusText={statusOfTotal(completedSows)}
-              progressPct={shareProgress(completedSows)}
-            />
-          </div>
           <div className="border-t border-slate-100 lg:border-t-0 lg:border-l lg:border-slate-100 px-4 py-4 sm:px-5">
             <div className="h-[220px]">
-              <PieWidget slices={slices} innerRadius={58} />
+              <PieWidget slices={mapSliceLabels(slices)} innerRadius={58} />
             </div>
           </div>
         </div>
@@ -544,10 +635,10 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
             {showSow && (
               <>
                 <ChartCard title="Active fulfillment progress" empty={stats.progressSlices.length === 0}>
-                  <PieWidget slices={stats.progressSlices} innerRadius={55} />
+                  <PieWidget slices={mapSliceLabels(stats.progressSlices)} innerRadius={55} />
                 </ChartCard>
                 <ChartCard title="Packing configuration mix" empty={stats.packingTypeSlices.length === 0}>
-                  <PieWidget slices={stats.packingTypeSlices} />
+                  <PieWidget slices={mapSliceLabels(stats.packingTypeSlices)} />
                 </ChartCard>
               </>
             )}
@@ -575,7 +666,7 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
                         return [`${n} / ${row.ordered} (${row.pct}%)`, 'Units fulfilled'];
                       }}
                     />
-                    <Bar dataKey="scanned" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                    <Bar dataKey="scanned" fill={CHART_COLORS.dark} radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </ChartCard>
@@ -593,7 +684,7 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
                         return row ? `${row.sku} — ${row.productName}` : '';
                       }}
                     />
-                    <Bar dataKey="scanned" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="scanned" fill={CHART_COLORS.dark} radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </ChartCard>

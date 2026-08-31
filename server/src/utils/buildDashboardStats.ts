@@ -69,10 +69,10 @@ export interface DashboardStats {
 }
 
 const STATUS_COLORS = {
-  open: '#f59e0b',
-  fulfilled: '#10b981',
-  packing: '#f59e0b',
-  completed: '#10b981',
+  open: '#60a5fa',
+  fulfilled: '#1e3a8a',
+  packing: '#60a5fa',
+  completed: '#1e3a8a',
 };
 
 const PACKING_TYPE_LABELS: Record<number, string> = {
@@ -82,9 +82,9 @@ const PACKING_TYPE_LABELS: Record<number, string> = {
 };
 
 const PACKING_TYPE_COLORS: Record<number, string> = {
-  1: '#6366f1',
-  2: '#8b5cf6',
-  3: '#ec4899',
+  1: '#1e3a8a',
+  2: '#2563eb',
+  3: '#3b82f6',
 };
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -270,8 +270,8 @@ export async function buildDashboardStats(role: UserRole): Promise<DashboardStat
   const progressSlices: ChartSlice[] =
     activeOrdered > 0
       ? [
-          { name: 'Scanned', value: activeScanned, color: '#10b981' },
-          { name: 'Remaining', value: Math.max(0, activeOrdered - activeScanned), color: '#e2e8f0' },
+          { name: 'Scanned', value: activeScanned, color: '#1e3a8a' },
+          { name: 'Remaining', value: Math.max(0, activeOrdered - activeScanned), color: '#dbeafe' },
         ]
       : [];
 
