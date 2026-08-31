@@ -14,7 +14,9 @@ export interface ChartSlice {
 export interface TopSkuItem {
   sku: string;
   productName: string;
-  scanned: number;
+  orderedQty: number;
+  pendingUnits: number;
+  completedUnits: number;
 }
 
 export interface DeliveryPoItem {
@@ -214,17 +216,63 @@ export async function buildDashboardStats(role: UserRole): Promise<DashboardStat
     });
   }
 
-  const skuMap = new Map<string, { productName: string; scanned: number }>();
-  for (const s of sowsWithStats) {
-    for (const item of s.progressItems) {
-      const prev = skuMap.get(item.sku) || { productName: item.productName, scanned: 0 };
-      prev.scanned += item.scannedQty;
-      skuMap.set(item.sku, prev);
+  let topSkus: TopSkuItem[] = [];
+  if (showSow) {
+    const namesBySku = new Map(
+      (await ProductNameOption.find()).map((o) => [o.sku, o.name])
+    );
+
+    const orderedBySku = new Map<string, { productName: string; orderedQty: number }>();
+    const addPoLine = (sku: string, productName: string, qty: number) => {
+      if (qty <= 0) return;
+      const prev = orderedBySku.get(sku) || {
+        productName: productName || namesBySku.get(sku) || sku,
+        orderedQty: 0,
+      };
+      prev.orderedQty += qty;
+      if (productName) prev.productName = productName;
+      orderedBySku.set(sku, prev);
+    };
+
+    if (poProgressList.length > 0) {
+      for (const p of poProgressList) {
+        for (const item of p.progress.items) {
+          addPoLine(item.sku, item.productName, item.orderedQty);
+        }
+      }
+    } else {
+      const orders = await PurchaseOrder.find().select('items');
+      for (const o of orders) {
+        for (const item of o.items || []) {
+          addPoLine(item.sku, item.productName, item.qty || 0);
+        }
+      }
     }
+
+    const completedBySku = new Map<string, number>();
+    for (const s of sowsWithStats) {
+      if (s.status !== 'completed') continue;
+      for (const item of s.progressItems) {
+        completedBySku.set(item.sku, (completedBySku.get(item.sku) || 0) + item.scannedQty);
+      }
+    }
+
+    topSkus = [...orderedBySku.entries()]
+      .map(([sku, { productName, orderedQty }]) => {
+        const rawCompleted = completedBySku.get(sku) || 0;
+        const completedUnits = Math.min(rawCompleted, orderedQty);
+        const pendingUnits = Math.max(0, orderedQty - completedUnits);
+        return {
+          sku,
+          productName: productName || namesBySku.get(sku) || sku,
+          orderedQty,
+          pendingUnits,
+          completedUnits,
+        };
+      })
+      .filter((item) => item.orderedQty > 0)
+      .sort((a, b) => b.orderedQty - a.orderedQty);
   }
-  const topSkus: TopSkuItem[] = [...skuMap.entries()]
-    .map(([sku, { productName, scanned }]) => ({ sku, productName, scanned }))
-    .sort((a, b) => b.scanned - a.scanned);
 
   const today = startOfDay(new Date());
   const soonLimit = new Date(today.getTime() + 14 * MS_PER_DAY);

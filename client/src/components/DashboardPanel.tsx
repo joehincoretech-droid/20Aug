@@ -525,11 +525,11 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
       {showSow && stats.topSkus.length > 0 ? (
         <section>
           <SectionHeading
-            title="Throughput ranking"
-            description="SKUs ranked by units shipped, with product names shown below each SKU."
+            title="SKU order overview"
+            description="Purchase order quantities by SKU, split between pending and completed packing jobs."
           />
           <ChartCard
-            title="Leading SKUs by units shipped"
+            title="SKU orders by packing status"
             chartHeight={Math.max(280, stats.topSkus.length * 36 + 120)}
           >
             <div
@@ -555,13 +555,27 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
                   />
                   <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                   <Tooltip
-                    formatter={(value) => [Number(value ?? 0), 'Units shipped']}
+                    formatter={(value, name) => [Number(value ?? 0), String(name ?? '')]}
                     labelFormatter={(_label, payload) => {
                       const row = payload?.[0]?.payload as DashboardStats['topSkus'][0] | undefined;
-                      return row ? `${row.sku} — ${row.productName}` : '';
+                      if (!row) return '';
+                      return `${row.sku} — ${row.productName} (${row.orderedQty} ordered)`;
                     }}
                   />
-                  <Bar dataKey="scanned" fill={CHART_COLORS.dark} radius={[4, 4, 0, 0]} />
+                  <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+                  <Bar
+                    dataKey="completedUnits"
+                    stackId="sku"
+                    fill={CHART_COLORS.dark}
+                    name="Completed packing"
+                  />
+                  <Bar
+                    dataKey="pendingUnits"
+                    stackId="sku"
+                    fill="rgba(96, 165, 250, 0.45)"
+                    name="Pending PO"
+                    radius={[4, 4, 0, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>

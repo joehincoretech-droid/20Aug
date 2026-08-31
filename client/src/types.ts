@@ -133,7 +133,9 @@ export interface ChartSlice {
 export interface DashboardTopSku {
   sku: string;
   productName: string;
-  scanned: number;
+  orderedQty: number;
+  pendingUnits: number;
+  completedUnits: number;
 }
 
 export interface DashboardDeliveryPo {
