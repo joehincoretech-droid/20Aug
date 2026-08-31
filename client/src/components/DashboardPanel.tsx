@@ -200,7 +200,7 @@ function SowStatusPanel({
   return (
     <div className={`${CARD_CLASS} min-w-0 w-full overflow-hidden`}>
       <div className="border-b border-slate-100 px-6 py-4 sm:px-7">
-        <h3 className="text-base font-semibold text-slate-800">Shipment order status</h3>
+        <h3 className="text-base font-semibold text-slate-800">SOW</h3>
       </div>
       {total === 0 ? (
         <p className="px-6 py-16 text-center text-sm text-slate-400 sm:px-7">
@@ -209,7 +209,7 @@ function SowStatusPanel({
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(220px,32%)]">
           <StatusHorizonBar
-            totalLabel="Total shipment orders"
+            totalLabel="Total SOW"
             total={total}
             completed={completedSows}
             entityName="shipment orders"
@@ -250,7 +250,7 @@ function ChartCard({
   );
 }
 
-function SkuChartTick(props: {
+function SkuYAxisTick(props: {
   x?: string | number;
   y?: string | number;
   payload?: { value?: string };
@@ -261,24 +261,24 @@ function SkuChartTick(props: {
   const { payload, items } = props;
   const row = items.find((item) => item.sku === payload?.value);
   const productName = row?.productName ?? '';
-  const maxLen = 22;
+  const maxLen = 28;
   const displayName =
     productName.length > maxLen ? `${productName.slice(0, maxLen)}…` : productName;
 
   return (
     <g transform={`translate(${x},${y})`}>
       <text
-        x={0}
+        x={-8}
         y={0}
-        dy={12}
-        textAnchor="middle"
+        dy={3}
+        textAnchor="end"
         fill="#1e293b"
         fontSize={10}
         fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
       >
         {payload?.value}
       </text>
-      <text x={0} y={0} dy={26} textAnchor="middle" fill="#64748b" fontSize={9}>
+      <text x={-8} y={0} dy={16} textAnchor="end" fill="#64748b" fontSize={9}>
         {displayName}
       </text>
     </g>
@@ -428,6 +428,8 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
   const hasAnyData =
     (showPo && (kpis.openPos + kpis.fulfilledPos > 0)) ||
     (showSow && (kpis.activeSows + kpis.completedSows > 0));
+  const skuChartContentHeight = Math.max(280, stats.topSkus.length * 52 + 48);
+  const skuChartViewportHeight = Math.min(560, skuChartContentHeight);
 
   return (
     <div className="w-full min-w-0 max-w-full space-y-8">
@@ -502,7 +504,7 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
       <section>
         <SectionHeading
           title="Key performance indicators & operational analytics"
-          description="Purchase order and shipment order status overview."
+          description="Purchase order and SOW overview."
         />
         <div className="space-y-4">
           {showPo && (
@@ -528,33 +530,32 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
             title="SKU order overview"
             description="Purchase order quantities by SKU, split between pending and completed packing jobs."
           />
-          <ChartCard
-            title="SKU orders by packing status"
-            chartHeight={Math.max(280, stats.topSkus.length * 36 + 120)}
-          >
-            <div className="h-full w-full min-w-0 max-w-full overflow-x-auto">
-              <div
-                className="h-full w-full"
-                style={{ minWidth: Math.max(stats.topSkus.length * 88, 480) }}
-              >
+          <ChartCard title="SKU orders by packing status" chartHeight={skuChartViewportHeight}>
+            <div className="h-full w-full min-w-0 overflow-y-auto">
+              <div style={{ height: skuChartContentHeight }}>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={stats.topSkus} margin={{ bottom: 56, left: 8, right: 16, top: 8 }}>
-                  <XAxis
+                <BarChart
+                  data={stats.topSkus}
+                  layout="vertical"
+                  margin={{ left: 8, right: 24, top: 8, bottom: 8 }}
+                  barCategoryGap="18%"
+                >
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                  <YAxis
+                    type="category"
                     dataKey="sku"
-                    interval={0}
+                    width={156}
                     tickLine={false}
                     axisLine={{ stroke: '#e2e8f0' }}
                     tick={(props) => (
-                      <SkuChartTick
+                      <SkuYAxisTick
                         x={props.x}
                         y={props.y}
                         payload={props.payload}
                         items={stats.topSkus}
                       />
                     )}
-                    height={56}
                   />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                   <Tooltip
                     formatter={(value, name) => [Number(value ?? 0), String(name ?? '')]}
                     labelFormatter={(_label, payload) => {
@@ -569,13 +570,15 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
                     stackId="sku"
                     fill={CHART_COLORS.dark}
                     name="Completed packing"
+                    barSize={18}
                   />
                   <Bar
                     dataKey="pendingUnits"
                     stackId="sku"
                     fill="rgba(96, 165, 250, 0.45)"
                     name="Pending PO"
-                    radius={[4, 4, 0, 0]}
+                    radius={[0, 4, 4, 0]}
+                    barSize={18}
                   />
                 </BarChart>
               </ResponsiveContainer>
