@@ -21,8 +21,8 @@ export function Dashboard() {
   const today = formatDate(new Date());
 
   return (
-    <div className="min-h-full bg-[#f8f9fb] p-4 sm:p-8">
-      <div className="mx-auto max-w-[1400px]">
+    <div className="min-h-full w-full min-w-0 max-w-full bg-[#f8f9fb] p-4 sm:p-8">
+      <div className="mx-auto w-full min-w-0 max-w-[1400px]">
         <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">Operations Dashboard</h1>

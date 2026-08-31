@@ -159,7 +159,7 @@ function PoStatusPanel({
   const total = openPos + fulfilledPos;
 
   return (
-    <div className={CARD_CLASS}>
+    <div className={`${CARD_CLASS} min-w-0 w-full overflow-hidden`}>
       <div className="border-b border-slate-100 px-6 py-4 sm:px-7">
         <h3 className="text-base font-semibold text-slate-800">Purchase order status</h3>
       </div>
@@ -198,7 +198,7 @@ function SowStatusPanel({
   const total = activeSows + completedSows;
 
   return (
-    <div className={CARD_CLASS}>
+    <div className={`${CARD_CLASS} min-w-0 w-full overflow-hidden`}>
       <div className="border-b border-slate-100 px-6 py-4 sm:px-7">
         <h3 className="text-base font-semibold text-slate-800">Shipment order status</h3>
       </div>
@@ -237,12 +237,12 @@ function ChartCard({
   chartHeight?: number;
 }) {
   return (
-    <div className={`${CARD_CLASS} p-6`}>
+    <div className={`${CARD_CLASS} min-w-0 w-full overflow-hidden p-6`}>
       <h3 className="text-base font-semibold text-slate-800">{title}</h3>
       {empty ? (
         <p className="mt-8 py-16 text-center text-sm text-slate-400">No data available for this period.</p>
       ) : (
-        <div className="mt-4" style={{ height: chartHeight }}>
+        <div className="mt-4 min-w-0" style={{ height: chartHeight }}>
           {children}
         </div>
       )}
@@ -355,7 +355,7 @@ function DeliveryTable({
 }) {
   const headerClass = tone === 'red' ? 'text-red-700' : 'text-amber-700';
   return (
-    <div className={`${CARD_CLASS} overflow-hidden`}>
+    <div className={`${CARD_CLASS} min-w-0 overflow-hidden`}>
       <div className={`border-b border-slate-100 bg-slate-50/80 px-6 py-4 ${headerClass} text-sm font-semibold`}>
         {title}
       </div>
@@ -430,7 +430,7 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
     (showSow && (kpis.activeSows + kpis.completedSows > 0));
 
   return (
-    <div className="space-y-8">
+    <div className="w-full min-w-0 max-w-full space-y-8">
       {!hasAnyData && (
         <div className={`${CARD_CLASS} px-6 py-12 text-center`}>
           <p className="text-sm font-medium text-slate-700">No operational data available.</p>
@@ -446,7 +446,7 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
             title="Active shipment orders"
             description="In-progress packing assignments requiring attention."
           />
-          <div className={`${CARD_CLASS} overflow-hidden`}>
+          <div className={`${CARD_CLASS} min-w-0 overflow-hidden`}>
             <div className="overflow-x-auto">
               <table className="w-full text-sm min-w-[480px]">
                 <thead className="bg-slate-50 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
@@ -492,7 +492,7 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
             title="Delivery schedule"
             description="Open purchase orders grouped by estimated delivery date."
           />
-          <div className="grid lg:grid-cols-2 gap-4">
+          <div className="grid min-w-0 gap-4 lg:grid-cols-2">
             <DeliveryTable title="Deliveries due within 14 days" rows={stats.deliverySoon} tone="amber" />
             <DeliveryTable title="Overdue deliveries" rows={stats.deliveryOverdue} tone="red" />
           </div>
@@ -532,10 +532,11 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
             title="SKU orders by packing status"
             chartHeight={Math.max(280, stats.topSkus.length * 36 + 120)}
           >
-            <div
-              className="h-full overflow-x-auto"
-              style={{ minWidth: '100%', width: Math.max(stats.topSkus.length * 88, 480) }}
-            >
+            <div className="h-full w-full min-w-0 max-w-full overflow-x-auto">
+              <div
+                className="h-full w-full"
+                style={{ minWidth: Math.max(stats.topSkus.length * 88, 480) }}
+              >
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={stats.topSkus} margin={{ bottom: 56, left: 8, right: 16, top: 8 }}>
                   <XAxis
@@ -578,6 +579,7 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
                   />
                 </BarChart>
               </ResponsiveContainer>
+              </div>
             </div>
           </ChartCard>
         </section>

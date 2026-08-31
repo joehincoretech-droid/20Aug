@@ -75,7 +75,7 @@ export function Layout() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div className="min-h-screen w-full overflow-x-hidden bg-slate-100">
       {mobileOpen && (
         <button
           type="button"
@@ -222,8 +222,8 @@ export function Layout() {
       </aside>
 
       <div
-        className={`flex min-h-screen min-w-0 flex-col transition-[margin] duration-200 ease-out ${
-          collapsed ? 'md:ml-16' : 'md:ml-64'
+        className={`flex min-h-screen w-full min-w-0 flex-col overflow-x-hidden transition-[margin,width] duration-200 ease-out ${
+          collapsed ? 'md:ml-16 md:w-[calc(100%-4rem)]' : 'md:ml-64 md:w-[calc(100%-16rem)]'
         }`}
       >
         <header className="sticky top-0 z-20 flex items-center gap-3 border-b bg-white px-3 py-2.5 md:hidden">
@@ -241,7 +241,7 @@ export function Layout() {
             <div className="truncate text-sm font-semibold text-slate-900">Warehouse Packing</div>
           </div>
         </header>
-        <main className="min-w-0 flex-1">
+        <main className="min-w-0 w-full max-w-full flex-1 overflow-x-hidden">
           <Outlet />
         </main>
       </div>
