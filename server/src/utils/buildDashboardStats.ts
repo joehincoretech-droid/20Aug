@@ -19,6 +19,14 @@ export interface TopSkuItem {
   completedUnits: number;
 }
 
+export interface PoSkuOrderGroup {
+  poNumber: string;
+  clientCode: string;
+  estimatedDeliveryDate: string | null;
+  totalOrderedQty: number;
+  skus: TopSkuItem[];
+}
+
 export interface DeliveryPoItem {
   poNumber: string;
   clientCode: string;
@@ -51,7 +59,7 @@ export interface DashboardStats {
   kpis: DashboardKpis;
   poStatusSlices: ChartSlice[];
   sowStatusSlices: ChartSlice[];
-  topSkus: TopSkuItem[];
+  skuOrdersByPo: PoSkuOrderGroup[];
   deliverySoon: DeliveryPoItem[];
   deliveryOverdue: DeliveryPoItem[];
   recentActiveSows: RecentActiveSow[];
@@ -93,7 +101,7 @@ export async function buildDashboardStats(role: UserRole): Promise<DashboardStat
     },
     poStatusSlices: [],
     sowStatusSlices: [],
-    topSkus: [],
+    skuOrdersByPo: [],
     deliverySoon: [],
     deliveryOverdue: [],
     recentActiveSows: [],
@@ -216,62 +224,100 @@ export async function buildDashboardStats(role: UserRole): Promise<DashboardStat
     });
   }
 
-  let topSkus: TopSkuItem[] = [];
+  let skuOrdersByPo: PoSkuOrderGroup[] = [];
   if (showSow) {
     const namesBySku = new Map(
       (await ProductNameOption.find()).map((o) => [o.sku, o.name])
     );
 
-    const orderedBySku = new Map<string, { productName: string; orderedQty: number }>();
-    const addPoLine = (sku: string, productName: string, qty: number) => {
-      if (qty <= 0) return;
-      const prev = orderedBySku.get(sku) || {
-        productName: productName || namesBySku.get(sku) || sku,
-        orderedQty: 0,
-      };
-      prev.orderedQty += qty;
-      if (productName) prev.productName = productName;
-      orderedBySku.set(sku, prev);
-    };
-
-    if (poProgressList.length > 0) {
-      for (const p of poProgressList) {
-        for (const item of p.progress.items) {
-          addPoLine(item.sku, item.productName, item.orderedQty);
-        }
-      }
-    } else {
-      const orders = await PurchaseOrder.find().select('items');
-      for (const o of orders) {
-        for (const item of o.items || []) {
-          addPoLine(item.sku, item.productName, item.qty || 0);
-        }
-      }
-    }
-
-    const completedBySku = new Map<string, number>();
+    const completedByPoSku = new Map<string, Map<string, number>>();
     for (const s of sowsWithStats) {
       if (s.status !== 'completed') continue;
       for (const item of s.progressItems) {
-        completedBySku.set(item.sku, (completedBySku.get(item.sku) || 0) + item.scannedQty);
+        const bySku = completedByPoSku.get(s.poNumber) || new Map<string, number>();
+        bySku.set(item.sku, (bySku.get(item.sku) || 0) + item.scannedQty);
+        completedByPoSku.set(s.poNumber, bySku);
       }
     }
 
-    topSkus = [...orderedBySku.entries()]
-      .map(([sku, { productName, orderedQty }]) => {
-        const rawCompleted = completedBySku.get(sku) || 0;
-        const completedUnits = Math.min(rawCompleted, orderedQty);
-        const pendingUnits = Math.max(0, orderedQty - completedUnits);
+    const poSources: Array<{
+      poNumber: string;
+      clientCode: string;
+      estimatedDeliveryDate: Date | null | undefined;
+      lines: Array<{ sku: string; productName: string; orderedQty: number }>;
+    }> = [];
+
+    if (poProgressList.length > 0) {
+      for (const p of poProgressList) {
+        poSources.push({
+          poNumber: p.poNumber,
+          clientCode: p.clientCode,
+          estimatedDeliveryDate: p.estimatedDeliveryDate,
+          lines: p.progress.items.map((item) => ({
+            sku: item.sku,
+            productName: item.productName,
+            orderedQty: item.orderedQty,
+          })),
+        });
+      }
+    } else {
+      const orders = await PurchaseOrder.find().select(
+        'poNumber clientCode estimatedDeliveryDate items'
+      );
+      for (const o of orders) {
+        poSources.push({
+          poNumber: o.poNumber,
+          clientCode: o.clientCode,
+          estimatedDeliveryDate: o.estimatedDeliveryDate,
+          lines: (o.items || []).map((item) => ({
+            sku: item.sku,
+            productName: item.productName,
+            orderedQty: item.qty || 0,
+          })),
+        });
+      }
+    }
+
+    skuOrdersByPo = poSources
+      .map((po) => {
+        const completedForPo = completedByPoSku.get(po.poNumber) || new Map<string, number>();
+        const skus: TopSkuItem[] = po.lines
+          .filter((line) => line.orderedQty > 0)
+          .map((line) => {
+            const rawCompleted = completedForPo.get(line.sku) || 0;
+            const completedUnits = Math.min(rawCompleted, line.orderedQty);
+            const pendingUnits = Math.max(0, line.orderedQty - completedUnits);
+            return {
+              sku: line.sku,
+              productName: line.productName || namesBySku.get(line.sku) || line.sku,
+              orderedQty: line.orderedQty,
+              pendingUnits,
+              completedUnits,
+            };
+          })
+          .sort((a, b) => b.orderedQty - a.orderedQty);
+        if (skus.length === 0) return null;
         return {
-          sku,
-          productName: productName || namesBySku.get(sku) || sku,
-          orderedQty,
-          pendingUnits,
-          completedUnits,
+          poNumber: po.poNumber,
+          clientCode: po.clientCode,
+          estimatedDeliveryDate: po.estimatedDeliveryDate
+            ? po.estimatedDeliveryDate.toISOString()
+            : null,
+          totalOrderedQty: skus.reduce((n, s) => n + s.orderedQty, 0),
+          skus,
         };
       })
-      .filter((item) => item.orderedQty > 0)
-      .sort((a, b) => b.orderedQty - a.orderedQty);
+      .filter((group): group is PoSkuOrderGroup => group != null)
+      .sort((a, b) => {
+        const aTime = a.estimatedDeliveryDate
+          ? new Date(a.estimatedDeliveryDate).getTime()
+          : Number.POSITIVE_INFINITY;
+        const bTime = b.estimatedDeliveryDate
+          ? new Date(b.estimatedDeliveryDate).getTime()
+          : Number.POSITIVE_INFINITY;
+        if (aTime !== bTime) return aTime - bTime;
+        return a.poNumber.localeCompare(b.poNumber);
+      });
   }
 
   const today = startOfDay(new Date());
@@ -333,7 +379,7 @@ export async function buildDashboardStats(role: UserRole): Promise<DashboardStat
     },
     poStatusSlices,
     sowStatusSlices,
-    topSkus,
+    skuOrdersByPo,
     deliverySoon,
     deliveryOverdue,
     recentActiveSows,

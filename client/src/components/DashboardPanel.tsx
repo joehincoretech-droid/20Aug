@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import type { ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   Bar,
@@ -21,8 +21,10 @@ import {
   Layers,
   Package,
   Plus,
+  Search,
+  X,
 } from 'lucide-react';
-import type { DashboardStats, UserRole } from '../types';
+import type { DashboardPoSkuOrderGroup, DashboardStats, DashboardTopSku, UserRole } from '../types';
 import { formatDate } from '../utils/date';
 
 function SectionHeading({ title, description }: { title: string; description?: string }) {
@@ -250,20 +252,98 @@ function ChartCard({
   );
 }
 
-function SkuYAxisTick(props: {
+const MAX_PO_CHART_ROWS = 20;
+
+const SKU_BAR_COLORS = [
+  '#1e3a8a',
+  '#059669',
+  '#d97706',
+  '#7c3aed',
+  '#db2777',
+  '#0891b2',
+  '#4f46e5',
+  '#65a30d',
+  '#0f766e',
+  '#b45309',
+  '#6d28d9',
+  '#be185d',
+];
+
+function hexToRgba(hex: string, alpha: number) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function skuPackedKey(sku: string) {
+  return `${sku}__packed`;
+}
+
+function skuPendingKey(sku: string) {
+  return `${sku}__pending`;
+}
+
+type PoSkuChartRow = {
+  poNumber: string;
+  clientCode: string;
+  estimatedDeliveryDate: string | null;
+  totalOrderedQty: number;
+  skus: DashboardTopSku[];
+  [key: string]: string | number | DashboardTopSku[] | null;
+};
+
+function buildPoSkuChartModel(pos: DashboardPoSkuOrderGroup[]) {
+  const skuMeta = new Map<string, { productName: string; color: string }>();
+  const skuSet = new Set<string>();
+
+  for (const po of pos) {
+    for (const sku of po.skus) {
+      if (!skuSet.has(sku.sku)) {
+        skuSet.add(sku.sku);
+        skuMeta.set(sku.sku, { productName: sku.productName, color: '#1e3a8a' });
+      }
+    }
+  }
+
+  const skuOrder = [...skuSet].sort((a, b) => a.localeCompare(b));
+  skuOrder.forEach((sku, index) => {
+    const meta = skuMeta.get(sku);
+    if (meta) meta.color = SKU_BAR_COLORS[index % SKU_BAR_COLORS.length];
+  });
+
+  const rows: PoSkuChartRow[] = pos.map((po) => {
+    const row: PoSkuChartRow = {
+      poNumber: po.poNumber,
+      clientCode: po.clientCode,
+      estimatedDeliveryDate: po.estimatedDeliveryDate,
+      totalOrderedQty: po.totalOrderedQty,
+      skus: po.skus,
+    };
+    for (const sku of skuOrder) {
+      row[skuPackedKey(sku)] = 0;
+      row[skuPendingKey(sku)] = 0;
+    }
+    for (const sku of po.skus) {
+      row[skuPackedKey(sku.sku)] = sku.completedUnits;
+      row[skuPendingKey(sku.sku)] = sku.pendingUnits;
+    }
+    return row;
+  });
+
+  return { rows, skuOrder, skuMeta };
+}
+
+function PoYAxisTick(props: {
   x?: string | number;
   y?: string | number;
   payload?: { value?: string };
-  items: DashboardStats['topSkus'];
+  rows: PoSkuChartRow[];
 }) {
   const x = Number(props.x ?? 0);
   const y = Number(props.y ?? 0);
-  const { payload, items } = props;
-  const row = items.find((item) => item.sku === payload?.value);
-  const productName = row?.productName ?? '';
-  const maxLen = 28;
-  const displayName =
-    productName.length > maxLen ? `${productName.slice(0, maxLen)}…` : productName;
+  const row = props.rows.find((item) => item.poNumber === props.payload?.value);
 
   return (
     <g transform={`translate(${x},${y})`}>
@@ -276,12 +356,42 @@ function SkuYAxisTick(props: {
         fontSize={10}
         fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
       >
-        {payload?.value}
+        {row?.poNumber ?? props.payload?.value}
       </text>
       <text x={-8} y={0} dy={16} textAnchor="end" fill="#64748b" fontSize={9}>
-        {displayName}
+        {row ? `${row.clientCode}${row.estimatedDeliveryDate ? ` · ${formatDate(row.estimatedDeliveryDate)}` : ''}` : ''}
       </text>
     </g>
+  );
+}
+
+function PoSkuChartTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload?: PoSkuChartRow }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg">
+      <div className="font-semibold text-slate-800">
+        {row.poNumber} · {row.clientCode}
+      </div>
+      <div className="mt-0.5 text-slate-500">{row.totalOrderedQty} units ordered</div>
+      <ul className="mt-2 space-y-1">
+        {row.skus.map((sku) => (
+          <li key={sku.sku} className="tabular-nums text-slate-700">
+            <span className="font-mono">{sku.sku}</span>
+            <span className="text-slate-400"> — </span>
+            {sku.completedUnits} packed, {sku.pendingUnits} unpacked
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -425,10 +535,23 @@ function QuickLink({
 
 export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: UserRole }) {
   const { kpis, showPo, showSow } = stats;
+  const [poSearch, setPoSearch] = useState('');
+
+  const filteredPos = useMemo(() => {
+    const q = poSearch.trim().toLowerCase();
+    if (!q) return stats.skuOrdersByPo;
+    return stats.skuOrdersByPo.filter(
+      (po) =>
+        po.poNumber.toLowerCase().includes(q) || po.clientCode.toLowerCase().includes(q)
+    );
+  }, [stats.skuOrdersByPo, poSearch]);
+
+  const chartPos = useMemo(() => filteredPos.slice(0, MAX_PO_CHART_ROWS), [filteredPos]);
+  const chartModel = useMemo(() => buildPoSkuChartModel(chartPos), [chartPos]);
   const hasAnyData =
     (showPo && (kpis.openPos + kpis.fulfilledPos > 0)) ||
     (showSow && (kpis.activeSows + kpis.completedSows > 0));
-  const skuChartContentHeight = Math.max(280, stats.topSkus.length * 52 + 48);
+  const skuChartContentHeight = Math.max(280, chartPos.length * 52 + 48);
   const skuChartViewportHeight = Math.min(560, skuChartContentHeight);
 
   return (
@@ -524,67 +647,137 @@ export function DashboardPanel({ stats, role }: { stats: DashboardStats; role: U
         </div>
       </section>
 
-      {showSow && stats.topSkus.length > 0 ? (
+      {showSow && stats.skuOrdersByPo.length > 0 ? (
         <section>
           <SectionHeading
-            title="SKU order overview"
-            description="Purchase order quantities by SKU, split between pending and completed packing jobs."
+            title="SKU packing status by purchase order"
+            description="Up to 20 nearest-delivery POs. Each bar shows SKU mix: solid = packed, faded = unpacked."
           />
-          <ChartCard title="SKU orders by packing status" chartHeight={skuChartViewportHeight}>
-            <div className="h-full w-full min-w-0 overflow-y-auto">
-              <div style={{ height: skuChartContentHeight }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={stats.topSkus}
-                  layout="vertical"
-                  margin={{ left: 8, right: 24, top: 8, bottom: 8 }}
-                  barCategoryGap="18%"
+
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+            <div className="relative flex-1 min-w-0 sm:min-w-48">
+              <Search
+                size={15}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+              />
+              <input
+                className="w-full rounded-lg border bg-white pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                placeholder="Filter PO number or client…"
+                value={poSearch}
+                onChange={(e) => setPoSearch(e.target.value)}
+              />
+              {poSearch && (
+                <button
+                  type="button"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  onClick={() => setPoSearch('')}
                 >
-                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-                  <YAxis
-                    type="category"
-                    dataKey="sku"
-                    width={156}
-                    tickLine={false}
-                    axisLine={{ stroke: '#e2e8f0' }}
-                    tick={(props) => (
-                      <SkuYAxisTick
-                        x={props.x}
-                        y={props.y}
-                        payload={props.payload}
-                        items={stats.topSkus}
-                      />
-                    )}
-                  />
-                  <Tooltip
-                    formatter={(value, name) => [Number(value ?? 0), String(name ?? '')]}
-                    labelFormatter={(_label, payload) => {
-                      const row = payload?.[0]?.payload as DashboardStats['topSkus'][0] | undefined;
-                      if (!row) return '';
-                      return `${row.sku} — ${row.productName} (${row.orderedQty} ordered)`;
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-                  <Bar
-                    dataKey="completedUnits"
-                    stackId="sku"
-                    fill={CHART_COLORS.dark}
-                    name="Completed packing"
-                    barSize={18}
-                  />
-                  <Bar
-                    dataKey="pendingUnits"
-                    stackId="sku"
-                    fill="rgba(96, 165, 250, 0.45)"
-                    name="Pending PO"
-                    radius={[0, 4, 4, 0]}
-                    barSize={18}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-              </div>
+                  <X size={14} />
+                </button>
+              )}
             </div>
-          </ChartCard>
+            <div className="text-xs text-slate-400 shrink-0">
+              {chartPos.length} shown / {stats.skuOrdersByPo.length} POs
+            </div>
+          </div>
+
+          {filteredPos.length === 0 ? (
+            <div className={`${CARD_CLASS} px-6 py-10 text-center text-sm text-slate-400`}>
+              No PO matches your search.
+            </div>
+          ) : (
+            <ChartCard title="SKU orders by packing status" chartHeight={skuChartViewportHeight}>
+              {chartModel.rows.length === 0 ? (
+                <p className="py-16 text-center text-sm text-slate-400">
+                  No purchase orders to display.
+                </p>
+              ) : (
+                <>
+                  {chartModel.skuOrder.length > 0 && (
+                    <div className="mb-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-slate-600">
+                      {chartModel.skuOrder.map((sku) => {
+                        const meta = chartModel.skuMeta.get(sku);
+                        if (!meta) return null;
+                        return (
+                          <div key={sku} className="flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1">
+                              <span
+                                className="inline-block h-2.5 w-2.5 rounded-sm"
+                                style={{ backgroundColor: meta.color }}
+                              />
+                              <span
+                                className="inline-block h-2.5 w-2.5 rounded-sm"
+                                style={{ backgroundColor: hexToRgba(meta.color, 0.45) }}
+                              />
+                            </span>
+                            <span>
+                              <span className="font-mono">{sku}</span>
+                              <span className="text-slate-400"> · {meta.productName}</span>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="h-full w-full min-w-0 overflow-y-auto">
+                    <div style={{ height: skuChartContentHeight }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={chartModel.rows}
+                          layout="vertical"
+                          margin={{ left: 8, right: 24, top: 8, bottom: 8 }}
+                          barCategoryGap="18%"
+                        >
+                          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                          <YAxis
+                            type="category"
+                            dataKey="poNumber"
+                            width={168}
+                            tickLine={false}
+                            axisLine={{ stroke: '#e2e8f0' }}
+                            tick={(props) => (
+                              <PoYAxisTick
+                                x={props.x}
+                                y={props.y}
+                                payload={props.payload}
+                                rows={chartModel.rows}
+                              />
+                            )}
+                          />
+                          <Tooltip content={<PoSkuChartTooltip />} />
+                          {chartModel.skuOrder.flatMap((sku, skuIndex) => {
+                            const meta = chartModel.skuMeta.get(sku);
+                            if (!meta) return [];
+                            const isLastSku = skuIndex === chartModel.skuOrder.length - 1;
+                            const color = meta.color;
+                            return [
+                              <Bar
+                                key={`${sku}-packed`}
+                                dataKey={skuPackedKey(sku)}
+                                stackId="po"
+                                fill={color}
+                                barSize={20}
+                                legendType="none"
+                              />,
+                              <Bar
+                                key={`${sku}-pending`}
+                                dataKey={skuPendingKey(sku)}
+                                stackId="po"
+                                fill={hexToRgba(color, 0.45)}
+                                barSize={20}
+                                radius={isLastSku ? [0, 4, 4, 0] : undefined}
+                                legendType="none"
+                              />,
+                            ];
+                          })}
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </>
+              )}
+            </ChartCard>
+          )}
         </section>
       ) : null}
 

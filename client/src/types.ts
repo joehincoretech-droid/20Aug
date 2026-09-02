@@ -138,6 +138,14 @@ export interface DashboardTopSku {
   completedUnits: number;
 }
 
+export interface DashboardPoSkuOrderGroup {
+  poNumber: string;
+  clientCode: string;
+  estimatedDeliveryDate: string | null;
+  totalOrderedQty: number;
+  skus: DashboardTopSku[];
+}
+
 export interface DashboardDeliveryPo {
   poNumber: string;
   clientCode: string;
@@ -170,7 +178,7 @@ export interface DashboardStats {
   kpis: DashboardKpis;
   poStatusSlices: ChartSlice[];
   sowStatusSlices: ChartSlice[];
-  topSkus: DashboardTopSku[];
+  skuOrdersByPo: DashboardPoSkuOrderGroup[];
   deliverySoon: DashboardDeliveryPo[];
   deliveryOverdue: DashboardDeliveryPo[];
   recentActiveSows: DashboardRecentSow[];
